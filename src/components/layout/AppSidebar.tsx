@@ -96,7 +96,7 @@ type SidebarView = "org" | "cluster"
 
 type NavLinkItemProps = {
   href: string
-  icon: string
+  icon?: string
   label: string
   active?: boolean
   isCollapsed: boolean
@@ -104,14 +104,14 @@ type NavLinkItemProps = {
 }
 
 function NavLinkItem({ href, icon, label, active, isCollapsed, className }: NavLinkItemProps) {
-  const Icon = resolveIcon(icon)
+  const Icon = icon ? resolveIcon(icon) : null
   const link = (
     <a
       href={href}
       className={cn(
         "relative w-full flex items-center rounded-md py-1.5 text-sm transition-colors outline-none",
         "focus-visible:ring-2 focus-visible:ring-sidebar-ring",
-        isCollapsed ? "justify-center px-1.5 gap-0" : "gap-2.5 px-2.5",
+        isCollapsed ? "justify-center px-1.5 gap-0" : cn("px-2.5", Icon && "gap-2.5"),
         active
           ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
           : "text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
@@ -122,7 +122,7 @@ function NavLinkItem({ href, icon, label, active, isCollapsed, className }: NavL
       {active && (
         <span className="absolute left-0 top-[15%] h-[70%] w-0.5 rounded-full bg-primary" />
       )}
-      <Icon size={16} className="shrink-0" />
+      {Icon && <Icon size={16} className="shrink-0" />}
       <span
         className={cn(
           "truncate transition-opacity duration-150",
@@ -148,7 +148,7 @@ function NavLinkItem({ href, icon, label, active, isCollapsed, className }: NavL
 type NavGroupItemProps = {
   label: string
   icon: string
-  children: Array<{ label: string; href: string; icon: string }>
+  children: Array<{ label: string; href: string; icon?: string }>
   activeHref: string
   defaultOpen?: boolean
   isCollapsed: boolean

@@ -1,7 +1,7 @@
 export type NavItem = {
   label: string
   href: string
-  icon: string
+  icon?: string
   children?: NavItem[]
 }
 
@@ -98,9 +98,9 @@ export const clusterNavigation: NavEntry[] = [
     label: "Workload Autoscaling",
     icon: "IconStack",
     children: [
-      { label: "Overview", href: "/cluster/workload-autoscaling", icon: "IconLayoutGrid" },
-      { label: "Configuration", href: "/cluster/workload-autoscaling/config", icon: "IconAdjustments" },
-      { label: "History", href: "/cluster/workload-autoscaling/history", icon: "IconHistory" },
+      { label: "Overview", href: "/cluster/workload-autoscaling" },
+      { label: "Configuration", href: "/cluster/workload-autoscaling/config" },
+      { label: "History", href: "/cluster/workload-autoscaling/history" },
     ],
   },
   {
@@ -108,9 +108,10 @@ export const clusterNavigation: NavEntry[] = [
     label: "Node Autoscaling",
     icon: "IconServer",
     children: [
-      { label: "Overview", href: "/cluster/node-autoscaling", icon: "IconLayoutGrid" },
-      { label: "Node Templates", href: "/cluster/node-autoscaling/templates", icon: "IconTemplate" },
-      { label: "Policies", href: "/cluster/node-autoscaling/policies", icon: "IconShieldCheck" },
+      { label: "Overview", href: "/cluster/node-autoscaling" },
+      { label: "Node List", href: "/cluster/node-autoscaling/nodes" },
+      { label: "Configurations", href: "/cluster/node-autoscaling/configurations" },
+      { label: "Rebalancer", href: "/cluster/node-autoscaling/rebalancer" },
     ],
   },
   {

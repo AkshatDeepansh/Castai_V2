@@ -13,6 +13,7 @@ type AppLayoutProps = {
   breadcrumbs?: Array<{ label: string; href?: string }>
   sidebarView?: "org" | "cluster"
   activeHref?: string
+  pageActions?: ReactNode
 }
 
 export function AppLayout({
@@ -21,6 +22,7 @@ export function AppLayout({
   breadcrumbs,
   sidebarView = "cluster",
   activeHref = "/cluster/dashboard",
+  pageActions,
 }: AppLayoutProps) {
   const { isCollapsed, expandedWidth, collapse, expand, setExpandedWidth } =
     useSidebarState()
@@ -38,9 +40,8 @@ export function AppLayout({
           onResizeEnd={setExpandedWidth}
         />
         <div className="flex-1 flex flex-col overflow-hidden bg-surface-paper">
-          {/* Page header zone with expand trigger when collapsed */}
           <div className="relative shrink-0">
-            <PageHeader title={pageTitle} breadcrumbs={breadcrumbs} />
+            <PageHeader title={pageTitle} breadcrumbs={breadcrumbs} actions={pageActions} />
             {isCollapsed && (
               <button
                 onClick={expand}

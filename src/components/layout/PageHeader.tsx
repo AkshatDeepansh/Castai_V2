@@ -1,3 +1,4 @@
+import type { ReactNode } from "react"
 import { IconChevronRight } from "@tabler/icons-react"
 import { cn } from "@/lib/utils"
 import { SURFACE_HEADER_HEIGHT } from "@/config/layout"
@@ -10,6 +11,7 @@ type Crumb = {
 type PageHeaderProps = {
   title?: string
   breadcrumbs?: Crumb[]
+  actions?: ReactNode
 }
 
 const defaultBreadcrumbs: Crumb[] = [
@@ -21,6 +23,7 @@ const defaultBreadcrumbs: Crumb[] = [
 export function PageHeader({
   title = "Dashboard",
   breadcrumbs = defaultBreadcrumbs,
+  actions,
 }: PageHeaderProps) {
   return (
     <div className={cn(SURFACE_HEADER_HEIGHT, "px-6 pt-3 pb-3 border-b border-border shrink-0 flex flex-col justify-center")}>
@@ -41,7 +44,10 @@ export function PageHeader({
                     {crumb.label}
                   </a>
                 ) : (
-                  <span className={isLast ? "text-foreground font-medium" : ""} aria-current={isLast ? "page" : undefined}>
+                  <span
+                    className={isLast ? "text-foreground font-medium" : ""}
+                    aria-current={isLast ? "page" : undefined}
+                  >
                     {crumb.label}
                   </span>
                 )}
@@ -50,9 +56,10 @@ export function PageHeader({
           })}
         </ol>
       </nav>
-      <h1 className="text-xl font-semibold tracking-tight text-foreground">
-        {title}
-      </h1>
+      <div className="flex items-center justify-between gap-4">
+        <h1 className="text-xl font-semibold tracking-tight text-foreground">{title}</h1>
+        {actions && <div className="flex items-center gap-2 shrink-0">{actions}</div>}
+      </div>
     </div>
   )
 }
