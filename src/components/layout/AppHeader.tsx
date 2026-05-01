@@ -36,7 +36,7 @@ export function AppHeader() {
   }
 
   return (
-    <header className="h-12 grid grid-cols-[220px_1fr_auto] items-center">
+    <header className="h-9 mx-3 mt-2 px-2 grid grid-cols-[220px_1fr_auto] items-center">
       {/* Logo — left cell */}
       <div className="flex items-center gap-2 px-4">
         <div className="h-6 w-6 rounded bg-primary flex items-center justify-center">
@@ -56,7 +56,7 @@ export function AppHeader() {
           />
           <Input
             placeholder="Search..."
-            className="pl-8 h-8 text-sm bg-muted/40 border-border/60 focus-visible:bg-background"
+            className="pl-8 h-8 text-sm bg-surface-paper border-border dark:border-border-subtle focus-visible:bg-card rounded-pill"
             aria-label="Search"
           />
         </div>

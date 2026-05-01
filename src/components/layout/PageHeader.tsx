@@ -1,4 +1,6 @@
 import { IconChevronRight } from "@tabler/icons-react"
+import { cn } from "@/lib/utils"
+import { SURFACE_HEADER_HEIGHT } from "@/config/layout"
 
 type Crumb = {
   label: string
@@ -21,7 +23,7 @@ export function PageHeader({
   breadcrumbs = defaultBreadcrumbs,
 }: PageHeaderProps) {
   return (
-    <div>
+    <div className={cn(SURFACE_HEADER_HEIGHT, "px-6 pt-3 pb-3 border-b border-border shrink-0 flex flex-col justify-center")}>
       <nav aria-label="Breadcrumb" className="mb-1.5">
         <ol className="flex items-center gap-1 text-xs text-muted-foreground">
           {breadcrumbs.map((crumb, i) => {
