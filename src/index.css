@@ -72,6 +72,9 @@
     --shadow-opacity: var(--shadow-opacity);
     --shadow-color: var(--shadow-color);
     --color-destructive-foreground: var(--destructive-foreground);
+    --color-surface-base: var(--surface-base);
+    --color-surface-paper: var(--surface-paper);
+    --color-surface-card: var(--surface-card);
 }
 
 :root {
@@ -128,12 +131,15 @@
     --shadow-xl: 0px 1px 4px 0px hsl(0,0,0 / 0.05), 0px 8px 10px -1px hsl(0,0,0 / 0.05);
     --shadow-2xl: 0px 1px 4px 0px hsl(0,0,0 / 0.13);
     --tracking-normal: -0.01em;
+    --surface-base: oklch(0.92 0.005 285);
+    --surface-paper: oklch(1 0 0);
+    --surface-card: oklch(0.97 0.005 285);
 }
 
 .dark {
-    --background: oklch(0.1448 0 0);
+    --background: oklch(0.13 0.005 285);
     --foreground: oklch(0.9851 0 0);
-    --card: oklch(0.1776 0 0);
+    --card: oklch(0.16 0.005 285);
     --card-foreground: oklch(0.9851 0 0);
     --popover: oklch(0.1776 0 0);
     --popover-foreground: oklch(0.9851 0 0);
@@ -183,6 +189,9 @@
     --shadow-lg: 0px 4px 10px 0px hsl(0,0,0 / 0.20), 0px 4px 6px -1px hsl(0,0,0 / 0.20);
     --shadow-xl: 0px 4px 10px 0px hsl(0,0,0 / 0.20), 0px 8px 10px -1px hsl(0,0,0 / 0.20);
     --shadow-2xl: 0px 4px 10px 0px hsl(0,0,0 / 0.50);
+    --surface-base: oklch(0.10 0.005 285);
+    --surface-paper: oklch(0.14 0.005 285);
+    --surface-card: oklch(0.17 0.005 285);
 }
 
 @layer base {
