@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useRef, useCallback } from "react"
 import {
   Star,
   Search,
@@ -10,8 +10,14 @@ import {
   MapPin,
   Zap,
   MoveHorizontal,
+  Check,
+  ChevronRight,
+  ArrowLeft,
+  Plus,
+  X,
 } from "lucide-react"
 import { AppLayout } from "@/components/layout/AppLayout"
+import { SURFACE_HEADER_HEIGHT } from "@/config/layout"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -25,8 +31,9 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
 
-// --- Types ---
+// ─── Types ────────────────────────────────────────────────────────────────────
 
+type FlowMode = "list" | "scenario" | "step1" | "step2" | "step3" | "edit"
 type ResOffering = "SPOT" | "ON-DEMAND" | "ALL OFFERINGS"
 
 type NodeTemplate = {
@@ -41,64 +48,105 @@ type NodeTemplate = {
   isDefault: boolean
 }
 
-// --- Mock data ---
+type TemplateForm = {
+  name: string
+  nodeConfig: string
+  taintEnabled: boolean
+  taints: Array<{ key: string; value: string; effect: string }>
+  customLabels: boolean
+  labels: Array<{ key: string; value: string }>
+  archX86: boolean
+  archArm: boolean
+  osLinux: boolean
+  osWindows: boolean
+  offeringSpot: boolean
+  offeringOnDemand: boolean
+  criteria: string[]
+  cpuLimitEnabled: boolean
+  spotFallback: boolean
+  spotFallbackDelay: string
+  interruptionPrediction: boolean
+  diversifySpot: boolean
+  reliableSpot: boolean
+  gpuSharing: boolean
+  standbyPool: boolean
+  liveMigration: boolean
+  storageAutoscaler: boolean
+}
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const DEFAULT_FORM: TemplateForm = {
+  name: "",
+  nodeConfig: "Default",
+  taintEnabled: false,
+  taints: [{ key: "scheduling.cast.ai/node-template", value: "", effect: "NoSchedule" }],
+  customLabels: false,
+  labels: [{ key: "", value: "" }],
+  archX86: true,
+  archArm: false,
+  osLinux: true,
+  osWindows: false,
+  offeringSpot: true,
+  offeringOnDemand: false,
+  criteria: [],
+  cpuLimitEnabled: false,
+  spotFallback: false,
+  spotFallbackDelay: "5 min",
+  interruptionPrediction: false,
+  diversifySpot: false,
+  reliableSpot: false,
+  gpuSharing: false,
+  standbyPool: false,
+  liveMigration: false,
+  storageAutoscaler: false,
+}
+
+const PRESET_OVERRIDES: Record<string, Partial<TemplateForm>> = {
+  "cost-optimized": {
+    offeringSpot: true, offeringOnDemand: false,
+    spotFallback: true, interruptionPrediction: true,
+    criteria: ["Min CPU: 2", "Max CPU: 32"],
+  },
+  "stable-production": {
+    offeringSpot: false, offeringOnDemand: true,
+    taintEnabled: true,
+  },
+  "gpu-workloads": {
+    criteria: ["GPU manufacturer: NVIDIA", "Min GPU: 1"],
+    gpuSharing: true, diversifySpot: true,
+  },
+  "windows-fleet": {
+    osLinux: false, osWindows: true,
+    offeringSpot: false, offeringOnDemand: true,
+  },
+  "burstable-dev": {
+    offeringSpot: true,
+    criteria: ["Min CPU: 1", "Max CPU: 8"],
+  },
+}
+
+const PRESETS = [
+  { id: "cost-optimized", emoji: "💰", title: "Cost-optimized", desc: "Spot + fallback + ML prediction. Linux, x86_64.", tag: "most popular" },
+  { id: "stable-production", emoji: "🧊", title: "Stable production", desc: "On-demand only. Tainted. No spot interruptions." },
+  { id: "gpu-workloads", emoji: "🎮", title: "GPU workloads", desc: "NVIDIA GPU, Spot, diversified across families." },
+  { id: "windows-fleet", emoji: "🪟", title: "Windows fleet", desc: "Windows OS, on-demand." },
+  { id: "burstable-dev", emoji: "⚡", title: "Burstable dev", desc: "Burstable, small CPU range, spot." },
+]
+
+const ADDABLE_CRITERIA = [
+  "Min CPU: 16", "Max CPU: 96", "Min memory: 32 GiB",
+  "GPU manufacturer: NVIDIA", "Storage optimized: Yes",
+  "Compute optimized: Yes", "Burstable: Yes", "Bare metal: Yes",
+  "Min GPU: 1", "CPU vendor: AMD",
+]
 
 const INITIAL_TEMPLATES: NodeTemplate[] = [
-  {
-    id: "1",
-    name: "default-by-castai",
-    nodeConfig: "default",
-    offering: "SPOT",
-    nodes: 24,
-    cpuEfficiency: 71,
-    memEfficiency: 58,
-    enabled: true,
-    isDefault: true,
-  },
-  {
-    id: "2",
-    name: "prod-spot-amd64",
-    nodeConfig: "prod-cpu-optimized",
-    offering: "SPOT",
-    nodes: 12,
-    cpuEfficiency: 84,
-    memEfficiency: 76,
-    enabled: true,
-    isDefault: false,
-  },
-  {
-    id: "3",
-    name: "prod-on-demand-xl",
-    nodeConfig: "prod-memory-optimized",
-    offering: "ON-DEMAND",
-    nodes: 4,
-    cpuEfficiency: 62,
-    memEfficiency: 89,
-    enabled: true,
-    isDefault: false,
-  },
-  {
-    id: "4",
-    name: "gpu-inference-nodes",
-    nodeConfig: "gpu-a100-large",
-    offering: "ON-DEMAND",
-    nodes: 2,
-    cpuEfficiency: 91,
-    memEfficiency: 67,
-    enabled: false,
-    isDefault: false,
-  },
-  {
-    id: "5",
-    name: "edge-all-offerings",
-    nodeConfig: "edge-standard",
-    offering: "ALL OFFERINGS",
-    nodes: 6,
-    cpuEfficiency: 55,
-    memEfficiency: 48,
-    enabled: true,
-    isDefault: false,
-  },
+  { id: "1", name: "default-by-castai", nodeConfig: "default", offering: "SPOT", nodes: 24, cpuEfficiency: 71, memEfficiency: 58, enabled: true, isDefault: true },
+  { id: "2", name: "prod-spot-amd64", nodeConfig: "prod-cpu-optimized", offering: "SPOT", nodes: 12, cpuEfficiency: 84, memEfficiency: 76, enabled: true, isDefault: false },
+  { id: "3", name: "prod-on-demand-xl", nodeConfig: "prod-memory-optimized", offering: "ON-DEMAND", nodes: 4, cpuEfficiency: 62, memEfficiency: 89, enabled: true, isDefault: false },
+  { id: "4", name: "gpu-inference-nodes", nodeConfig: "gpu-a100-large", offering: "ON-DEMAND", nodes: 2, cpuEfficiency: 91, memEfficiency: 67, enabled: false, isDefault: false },
+  { id: "5", name: "edge-all-offerings", nodeConfig: "edge-standard", offering: "ALL OFFERINGS", nodes: 6, cpuEfficiency: 55, memEfficiency: 48, enabled: true, isDefault: false },
 ]
 
 const PAGE_TABS = [
@@ -115,17 +163,40 @@ const FEATURES = [
   { label: "Live migration", icon: MoveHorizontal, enabled: 3 },
 ]
 
-// --- Sub-components ---
+// ─── Utilities ────────────────────────────────────────────────────────────────
 
-function TemplateToggle({
-  checked,
-  onChange,
-  disabled,
-}: {
-  checked: boolean
-  onChange: () => void
-  disabled?: boolean
-}) {
+function computeApplicableInstances(form: TemplateForm): number {
+  const n = form.criteria.length
+  if (n === 0) return 126
+  if (n <= 2) return 48
+  if (n <= 4) return 12
+  return Math.max(1, 9 - n)
+}
+
+function computeTightnessPercent(form: TemplateForm): number {
+  const n = computeApplicableInstances(form)
+  if (n >= 100) return 12
+  if (n >= 40) return 35
+  if (n >= 10) return 58
+  if (n >= 5) return 78
+  return 92
+}
+
+function templateToForm(t: NodeTemplate): TemplateForm {
+  return {
+    ...DEFAULT_FORM,
+    name: t.name,
+    nodeConfig: t.nodeConfig,
+    taintEnabled: t.isDefault,
+    taints: [{ key: "scheduling.cast.ai/node-template", value: t.name, effect: "NoSchedule" }],
+    offeringSpot: t.offering === "SPOT" || t.offering === "ALL OFFERINGS",
+    offeringOnDemand: t.offering === "ON-DEMAND" || t.offering === "ALL OFFERINGS",
+  }
+}
+
+// ─── Shared primitives ────────────────────────────────────────────────────────
+
+function TemplateToggle({ checked, onChange, disabled }: { checked: boolean; onChange: () => void; disabled?: boolean }) {
   return (
     <button
       role="switch"
@@ -138,12 +209,7 @@ function TemplateToggle({
         disabled ? "cursor-default" : "cursor-pointer"
       )}
     >
-      <span
-        className={cn(
-          "pointer-events-none block h-3 w-3 rounded-full bg-white shadow-sm transition-transform duration-200",
-          checked ? "translate-x-3" : "translate-x-0"
-        )}
-      />
+      <span className={cn("pointer-events-none block h-3 w-3 rounded-full bg-white shadow-sm transition-transform duration-200", checked ? "translate-x-3" : "translate-x-0")} />
     </button>
   )
 }
@@ -152,10 +218,7 @@ function MiniBar({ value }: { value: number }) {
   return (
     <div className="flex items-center gap-2">
       <div className="relative h-1 w-14 rounded-full bg-muted overflow-hidden">
-        <div
-          className="absolute inset-y-0 left-0 rounded-full bg-primary/70"
-          style={{ width: `${value}%` }}
-        />
+        <div className="absolute inset-y-0 left-0 rounded-full bg-primary/70" style={{ width: `${value}%` }} />
       </div>
       <span className="text-xs tabular-nums w-7 text-right">{value}%</span>
     </div>
@@ -165,52 +228,31 @@ function MiniBar({ value }: { value: number }) {
 function OfferingBadge({ offering }: { offering: ResOffering }) {
   const style: Record<ResOffering, string> = {
     SPOT: "bg-primary/10 text-primary border-primary/20",
-    "ON-DEMAND":
-      "bg-amber-500/10 text-amber-600 border-amber-500/20 dark:text-amber-400 dark:border-amber-500/30",
-    "ALL OFFERINGS":
-      "bg-violet-500/10 text-violet-600 border-violet-500/20 dark:text-violet-400 dark:border-violet-500/30",
+    "ON-DEMAND": "bg-amber-500/10 text-amber-600 border-amber-500/20 dark:text-amber-400 dark:border-amber-500/30",
+    "ALL OFFERINGS": "bg-violet-500/10 text-violet-600 border-violet-500/20 dark:text-violet-400 dark:border-violet-500/30",
   }
   return (
-    <Badge
-      variant="outline"
-      className={cn("text-[0.6rem] px-1.5 uppercase tracking-wide border", style[offering])}
-    >
+    <Badge variant="outline" className={cn("text-[0.6rem] px-1.5 uppercase tracking-wide border", style[offering])}>
       {offering}
     </Badge>
   )
 }
 
 const CIRC = 2 * Math.PI * 30
-
 function DonutChart({ templates }: { templates: NodeTemplate[] }) {
   const total = templates.length
   const spot = templates.filter((t) => t.offering === "SPOT").length
   const onDemand = templates.filter((t) => t.offering === "ON-DEMAND").length
   const all = templates.filter((t) => t.offering === "ALL OFFERINGS").length
-
   const spotLen = (spot / total) * CIRC
   const onDemandLen = (onDemand / total) * CIRC
   const allLen = (all / total) * CIRC
   const gap = 3
-
   function segment(len: number, offset: number, color: string) {
     if (len <= 0) return null
     const actual = Math.max(0, len - gap)
-    return (
-      <circle
-        cx={40}
-        cy={40}
-        r={30}
-        fill="none"
-        strokeWidth={7}
-        style={{ stroke: color }}
-        strokeDasharray={`${actual} ${CIRC - actual}`}
-        strokeDashoffset={-offset}
-        strokeLinecap="butt"
-      />
-    )
+    return <circle cx={40} cy={40} r={30} fill="none" strokeWidth={7} style={{ stroke: color }} strokeDasharray={`${actual} ${CIRC - actual}`} strokeDashoffset={-offset} strokeLinecap="butt" />
   }
-
   return (
     <div className="relative w-20 h-20 shrink-0">
       <svg viewBox="0 0 80 80" className="w-full h-full" style={{ transform: "rotate(-90deg)" }}>
@@ -225,294 +267,1484 @@ function DonutChart({ templates }: { templates: NodeTemplate[] }) {
   )
 }
 
-// --- Page ---
+// ─── Wizard shared primitives ──────────────────────────────────────────────────
+
+function CheckField({ checked, onChange, label, description, disabled }: {
+  checked: boolean; onChange: () => void; label: string; description?: string; disabled?: boolean
+}) {
+  return (
+    <label className={cn("flex items-start gap-2.5 cursor-pointer select-none", disabled && "opacity-50 pointer-events-none")}>
+      <button
+        role="checkbox"
+        aria-checked={checked}
+        onClick={onChange}
+        className={cn(
+          "mt-0.5 h-4 w-4 rounded border border-input flex items-center justify-center shrink-0 transition-colors",
+          checked ? "bg-primary border-primary" : "bg-background"
+        )}
+      >
+        {checked && <Check size={10} className="text-primary-foreground" />}
+      </button>
+      <div>
+        <span className="text-sm leading-none">{label}</span>
+        {description && <p className="text-xs text-muted-foreground mt-0.5">{description}</p>}
+      </div>
+    </label>
+  )
+}
+
+function FormSection({ title, children, className }: { title: string; children: React.ReactNode; className?: string }) {
+  return (
+    <div className={cn("rounded-lg border border-border bg-card p-4", className)}>
+      <div className="text-xs font-semibold text-foreground mb-3">{title}</div>
+      {children}
+    </div>
+  )
+}
+
+const RAIL_MIN = 300
+const RAIL_MAX = 640
+const RAIL_DEFAULT = 440
+
+function RightRail({ title, pill, children }: { title: string; pill?: string; children: React.ReactNode }) {
+  const [width, setWidth] = useState(RAIL_DEFAULT)
+  const railRef = useRef<HTMLDivElement>(null)
+
+  const handleDragStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startWidth = width
+    const node = railRef.current
+    if (node) node.style.transition = "none"
+    document.body.style.cursor = "col-resize"
+    document.body.style.userSelect = "none"
+
+    function onMouseMove(e: MouseEvent) {
+      const next = Math.max(RAIL_MIN, Math.min(RAIL_MAX, startWidth - (e.clientX - startX)))
+      if (node) node.style.width = `${next}px`
+    }
+    function onMouseUp(e: MouseEvent) {
+      document.removeEventListener("mousemove", onMouseMove)
+      document.removeEventListener("mouseup", onMouseUp)
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+      if (node) node.style.transition = ""
+      const next = Math.max(RAIL_MIN, Math.min(RAIL_MAX, startWidth - (e.clientX - startX)))
+      setWidth(next)
+    }
+    document.addEventListener("mousemove", onMouseMove)
+    document.addEventListener("mouseup", onMouseUp)
+  }, [width])
+
+  return (
+    <div
+      ref={railRef}
+      className="relative shrink-0 border-l border-border bg-background overflow-y-auto transition-[width] duration-0"
+      style={{ width }}
+    >
+      {/* Drag handle */}
+      <div
+        className="absolute inset-y-0 -left-2 w-4 flex items-center justify-center cursor-col-resize z-10 group/handle"
+        onMouseDown={handleDragStart}
+      >
+        <div className="w-px h-10 rounded-full bg-border opacity-0 group-hover/handle:opacity-100 transition-opacity duration-150" />
+      </div>
+      <div className="p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <span className="text-xs font-bold uppercase tracking-wider">{title}</span>
+          {pill && <Badge variant="outline" className="text-[0.6rem] px-1.5">{pill}</Badge>}
+        </div>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function TightnessMeter({ percent }: { percent: number }) {
+  const isTight = percent >= 80
+  return (
+    <div className="space-y-1.5">
+      <div className="flex justify-between text-[0.65rem] text-muted-foreground">
+        <span>loose · safer</span>
+        <span className={isTight ? "text-destructive font-semibold" : ""}>tight · risky</span>
+      </div>
+      <div className="relative h-2.5 rounded-full overflow-visible" style={{ background: "linear-gradient(90deg,#22c55e 0%,#eab308 50%,#ef4444 100%)" }}>
+        <div className="absolute top-1/2 -translate-y-1/2 w-0.5 h-4 bg-foreground rounded-full shadow-sm" style={{ left: `${percent}%` }} />
+      </div>
+    </div>
+  )
+}
+
+function YamlPreview({ form }: { form: TemplateForm }) {
+  const name = form.name || "<name>"
+  const taintLines = form.taintEnabled && form.taints.length > 0
+    ? form.taints.flatMap(t => [
+        `  - key: "scheduling.cast.ai/node-template"`,
+        `    value: "${t.value || name}"`,
+        `    operator: "Equal"`,
+        `    effect: "${t.effect}"`,
+      ])
+    : []
+  const lines = [
+    "# nodeSelector",
+    `scheduling.cast.ai/node-template: ${name}`,
+    ...(taintLines.length > 0 ? ["", "# tolerations", "tolerations:", ...taintLines] : []),
+  ]
+  return (
+    <pre className="rounded-md bg-muted border border-border px-4 py-3 font-mono text-[11px] leading-relaxed overflow-x-auto">
+      <code>
+        {lines.map((l, i) => (
+          <div key={i} className={cn("whitespace-pre", l.startsWith("#") ? "text-muted-foreground" : "text-foreground")}>
+            {l || " "}
+          </div>
+        ))}
+      </code>
+    </pre>
+  )
+}
+
+// ─── Feature row patterns ─────────────────────────────────────────────────────
+
+function FeatureSimple({ title, desc, enabled, onChange, locked, lockReason }: {
+  title: string; desc: string; enabled: boolean; onChange: () => void; locked?: boolean; lockReason?: string
+}) {
+  return (
+    <div className={cn("p-3 rounded-lg border border-border bg-card", locked && "opacity-55")}>
+      <div className="flex items-start gap-3">
+        <TemplateToggle checked={enabled} onChange={onChange} disabled={locked} />
+        <div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-sm font-medium leading-none">{title}</span>
+            {locked && lockReason && <Badge variant="outline" className="text-[0.6rem] px-1.5">{lockReason}</Badge>}
+          </div>
+          <p className="text-xs text-muted-foreground mt-1">{desc}</p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function FeatureInline({ title, desc, enabled, onChange, children }: {
+  title: string; desc: string; enabled: boolean; onChange: () => void; children?: React.ReactNode
+}) {
+  return (
+    <div className="p-3 rounded-lg border border-border bg-card">
+      <div className="flex items-start gap-3">
+        <TemplateToggle checked={enabled} onChange={onChange} />
+        <div className="flex-1 min-w-0">
+          <span className="text-sm font-medium leading-none">{title}</span>
+          <p className="text-xs text-muted-foreground mt-1">{desc}</p>
+          {enabled && children && (
+            <div className="mt-3 pt-3 border-t border-dashed border-border/60">{children}</div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function FeatureComplex({ title, desc, enabled, onChange, ctaLabel, badgeLabel }: {
+  title: string; desc: string; enabled: boolean; onChange: () => void; ctaLabel: string; badgeLabel: string
+}) {
+  return (
+    <div className="p-3 rounded-lg border border-border bg-card">
+      <div className="flex items-start gap-3">
+        <TemplateToggle checked={enabled} onChange={onChange} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="text-sm font-medium leading-none">{title}</span>
+            <Badge variant="outline" className="text-[0.6rem] px-1.5">{badgeLabel}</Badge>
+          </div>
+          <p className="text-xs text-muted-foreground mt-1">{desc}</p>
+          {enabled && (
+            <div className="mt-2 flex items-center gap-2">
+              <Button size="sm" variant="outline" className="h-7 text-xs">{ctaLabel} →</Button>
+              <span className="text-xs text-muted-foreground">not configured yet</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Wizard header / stepper / footer ─────────────────────────────────────────
+
+function WizardHeader({ onCancel }: { onCancel: () => void }) {
+  return (
+    <div className={cn(SURFACE_HEADER_HEIGHT, "px-6 pt-3 pb-3 border-b border-border shrink-0 flex flex-col justify-center bg-surface-paper")}>
+      <div className="mb-1.5">
+        <button
+          onClick={onCancel}
+          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ArrowLeft size={11} className="shrink-0" />
+          <span>Configurations</span>
+        </button>
+      </div>
+      <div className="flex items-center justify-between gap-4">
+        <h1 className="text-xl font-semibold tracking-tight text-foreground">Create a new node template</h1>
+        <Button variant="ghost" size="sm" className="h-8 text-xs shrink-0" onClick={onCancel}>Cancel</Button>
+      </div>
+    </div>
+  )
+}
+
+function WizardStepper({ step }: { step: 1 | 2 | 3 }) {
+  const steps = [
+    { n: 1 as const, label: "Template setup" },
+    { n: 2 as const, label: "Constraints" },
+    { n: 3 as const, label: "Features" },
+  ]
+  const progressPercent = (step / steps.length) * 100
+  return (
+    <div className="border-b border-border/50 shrink-0 bg-surface-paper">
+      <div className="flex items-center gap-10 px-6 pt-3 pb-3">
+        {steps.map((s) => {
+          const done = s.n < step
+          const active = s.n === step
+          return (
+            <div key={s.n} className="flex items-center gap-2">
+              <div className={cn(
+                "w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-colors shrink-0",
+                done ? "bg-foreground text-background" : active ? "bg-primary text-white" : "border border-border text-muted-foreground/50 bg-background"
+              )}>
+                {done ? <Check size={11} /> : s.n}
+              </div>
+              <span className={cn(
+                "text-sm transition-colors",
+                active ? "font-semibold text-foreground" : done ? "text-muted-foreground" : "text-muted-foreground/40"
+              )}>
+                {s.label}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+      {/* Progress bar — no horizontal padding so it bleeds edge-to-edge */}
+      <div className="h-0.5 bg-border/40">
+        <div
+          className="h-full bg-primary transition-all duration-300 ease-out"
+          style={{ width: `${progressPercent}%` }}
+        />
+      </div>
+    </div>
+  )
+}
+
+function WizardFooter({ step, onBack, onContinue }: { step: 1 | 2 | 3; onBack: () => void; onContinue: () => void }) {
+  return (
+    <div className="flex items-center justify-between h-16 border-t border-border px-6 shrink-0 bg-surface-paper">
+      <Button variant="ghost" onClick={onBack} disabled={step === 1} className="gap-1.5">
+        <ArrowLeft size={13} /> Back
+      </Button>
+      <div className="flex items-center gap-3">
+        <span className="text-xs text-muted-foreground">auto-saved</span>
+        <Button onClick={onContinue} className="h-8 text-sm">
+          {step === 3 ? "Create template" : "Continue →"}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Split input primitives ───────────────────────────────────────────────────
+
+function SplitSelect({ label, value, onChange, options }: {
+  label: string; value: string; onChange: (v: string) => void; options: string[]
+}) {
+  return (
+    <div className="flex items-center h-9 rounded-md border border-input overflow-hidden text-sm bg-transparent">
+      <span className="px-3 text-xs text-muted-foreground whitespace-nowrap bg-muted/40 h-full flex items-center border-r border-input shrink-0 min-w-[5rem]">
+        {label}
+      </span>
+      <select
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        className="flex-1 px-3 bg-transparent outline-none text-sm text-foreground h-full cursor-pointer"
+      >
+        {options.map(o => <option key={o} value={o}>{o}</option>)}
+      </select>
+    </div>
+  )
+}
+
+// ─── Repeatable field group ───────────────────────────────────────────────────
+
+type FieldDef = {
+  key: string
+  label: string
+  type?: "input" | "select"
+  options?: string[]
+  className?: string
+}
+
+function RepeatableFieldGroup({
+  fields,
+  rows,
+  onChange,
+  onRemove,
+  onAdd,
+  addLabel,
+}: {
+  fields: FieldDef[]
+  rows: Record<string, string>[]
+  onChange: (i: number, key: string, val: string) => void
+  onRemove: (i: number) => void
+  onAdd: () => void
+  addLabel: string
+}) {
+  return (
+    <div className="space-y-1.5">
+      {/* Column headers */}
+      <div className="flex items-center gap-2">
+        {fields.map(f => (
+          <div
+            key={f.key}
+            className={cn(
+              "text-xs text-muted-foreground font-medium uppercase tracking-wide",
+              f.className ?? "flex-1"
+            )}
+          >
+            {f.label}
+          </div>
+        ))}
+        <div className="w-5 shrink-0" />
+      </div>
+      {/* Data rows */}
+      {rows.map((row, i) => (
+        <div key={i} className="flex items-center gap-2">
+          {fields.map(f =>
+            f.type === "select" ? (
+              <select
+                key={f.key}
+                value={row[f.key] ?? ""}
+                onChange={e => onChange(i, f.key, e.target.value)}
+                className={cn(
+                  "h-9 rounded-md border border-input px-2.5 text-sm text-foreground outline-none cursor-pointer",
+                  f.className ?? "flex-1"
+                )}
+              >
+                {f.options?.map(o => <option key={o}>{o}</option>)}
+              </select>
+            ) : (
+              <Input
+                key={f.key}
+                value={row[f.key] ?? ""}
+                onChange={e => onChange(i, f.key, e.target.value)}
+                className={cn("h-9 text-sm", f.className ?? "flex-1")}
+              />
+            )
+          )}
+          <button
+            onClick={() => onRemove(i)}
+            className="shrink-0 w-5 flex justify-center text-muted-foreground/40 hover:text-destructive transition-colors"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      ))}
+      {/* Add row */}
+      <button
+        onClick={onAdd}
+        className="flex items-center gap-1 text-xs text-primary hover:underline mt-1"
+      >
+        <Plus size={11} /> {addLabel}
+      </button>
+    </div>
+  )
+}
+
+// ─── Step 1: Template setup ────────────────────────────────────────────────────
+
+function Step1Content({ form, onChange }: { form: TemplateForm; onChange: (u: Partial<TemplateForm>) => void }) {
+  return (
+    <>
+      <div className="flex-1 overflow-y-auto p-6 space-y-4">
+        <div>
+          <h2 className="text-lg font-bold">Template setup</h2>
+          <p className="text-sm text-muted-foreground mt-0.5">Name, identity, and how workloads reach these nodes.</p>
+        </div>
+
+        <FormSection title="Template name">
+          <Input
+            value={form.name}
+            onChange={e => onChange({ name: e.target.value })}
+            placeholder="e.g. cost-opt-prod"
+            className="max-w-sm h-9 text-sm text-foreground"
+          />
+          <p className="text-[0.7rem] text-amber-600 dark:text-amber-400 mt-1.5">⚠ Cannot be changed after saving</p>
+        </FormSection>
+
+        <FormSection title="Linked node configuration">
+          <div className="flex items-center gap-3">
+            <SplitSelect
+              label="Configuration"
+              value={form.nodeConfig}
+              onChange={v => onChange({ nodeConfig: v })}
+              options={["Default", "prod-cpu-optimized", "prod-memory-optimized", "gpu-a100-large"]}
+            />
+            <Button variant="ghost" size="sm" className="h-9 text-xs text-primary px-2">View configuration ↗</Button>
+          </div>
+        </FormSection>
+
+        <FormSection title="Taints">
+          <p className="text-xs text-muted-foreground mb-3">Repel pods that don't tolerate this key.</p>
+          <CheckField checked={form.taintEnabled} onChange={() => onChange({ taintEnabled: !form.taintEnabled })} label="Taint nodes" />
+          {form.taintEnabled && (
+            <div className="mt-3">
+              <RepeatableFieldGroup
+                fields={[
+                  { key: "key", label: "Key" },
+                  { key: "value", label: "Value" },
+                  { key: "effect", label: "Effect", type: "select", options: ["NoSchedule", "NoExecute", "PreferNoSchedule"], className: "w-44 shrink-0" },
+                ]}
+                rows={form.taints}
+                onChange={(i, k, v) => onChange({ taints: form.taints.map((t, j) => j === i ? { ...t, [k]: v } : t) })}
+                onRemove={i => onChange({ taints: form.taints.filter((_, j) => j !== i) })}
+                onAdd={() => onChange({ taints: [...form.taints, { key: "", value: "", effect: "NoSchedule" }] })}
+                addLabel="Add taint"
+              />
+            </div>
+          )}
+        </FormSection>
+
+        <FormSection title="Labels">
+          <p className="text-xs text-muted-foreground mb-3">Default nodeSelector uses the template name. Override with custom labels if needed.</p>
+          <CheckField checked={form.customLabels} onChange={() => onChange({ customLabels: !form.customLabels })} label="Use custom labels" />
+          {!form.customLabels && (
+            <div className="mt-3">
+              <Badge variant="outline" className="text-xs rounded-full font-normal px-2.5 py-0.5">
+                scheduling.cast.ai/node-template: {form.name || "—"}
+              </Badge>
+            </div>
+          )}
+          {form.customLabels && (
+            <div className="mt-3">
+              <RepeatableFieldGroup
+                fields={[
+                  { key: "key", label: "Key" },
+                  { key: "value", label: "Value" },
+                ]}
+                rows={form.labels}
+                onChange={(i, k, v) => onChange({ labels: form.labels.map((l, j) => j === i ? { ...l, [k]: v } : l) })}
+                onRemove={i => onChange({ labels: form.labels.filter((_, j) => j !== i) })}
+                onAdd={() => onChange({ labels: [...form.labels, { key: "", value: "" }] })}
+                addLabel="Add label"
+              />
+            </div>
+          )}
+        </FormSection>
+      </div>
+
+      <RightRail title="YAML preview" pill="this step">
+        <p className="text-xs text-muted-foreground mb-3">How pods will bind to nodes created by this template.</p>
+        <YamlPreview form={form} />
+        <div className="mt-4 p-3 bg-muted/40 rounded-md border border-border/50">
+          <p className="text-xs font-medium">💡 Copy this into your Deployment</p>
+          <p className="text-xs text-muted-foreground mt-1">Apply the nodeSelector + toleration to pods you want on this template's nodes.</p>
+        </div>
+      </RightRail>
+    </>
+  )
+}
+
+// ─── Step 2: Constraints ───────────────────────────────────────────────────────
+
+function Step2Content({ form, onChange }: { form: TemplateForm; onChange: (u: Partial<TemplateForm>) => void }) {
+  const [showCriteriaMenu, setShowCriteriaMenu] = useState(false)
+  const instances = computeApplicableInstances(form)
+  const tightness = computeTightnessPercent(form)
+  const isTight = instances <= 5
+  const addableCriteria = ADDABLE_CRITERIA.filter(c => !form.criteria.includes(c))
+
+  function removeCriterion(c: string) {
+    onChange({ criteria: form.criteria.filter(x => x !== c) })
+  }
+  function addCriterion(c: string) {
+    onChange({ criteria: [...form.criteria, c] })
+    setShowCriteriaMenu(false)
+  }
+
+  return (
+    <>
+      <div className="flex-1 overflow-y-auto p-6 space-y-4">
+        <div>
+          <h2 className="text-lg font-bold">Node pool constraints</h2>
+          <p className="text-sm text-muted-foreground mt-0.5">Filter which instances are eligible. <strong>More constraints = tighter pool = higher risk.</strong></p>
+        </div>
+
+        <div className="grid grid-cols-3 gap-3">
+          <FormSection title="Architecture">
+            <div className="space-y-2">
+              <CheckField checked={form.archX86} onChange={() => onChange({ archX86: !form.archX86 })} label="x86_64" />
+              <CheckField checked={form.archArm} onChange={() => onChange({ archArm: !form.archArm })} label="ARM64" />
+            </div>
+          </FormSection>
+          <FormSection title="OS">
+            <div className="space-y-2">
+              <CheckField checked={form.osLinux} onChange={() => onChange({ osLinux: !form.osLinux })} label="Linux" />
+              <CheckField checked={form.osWindows} onChange={() => onChange({ osWindows: !form.osWindows })} label="Windows" />
+            </div>
+          </FormSection>
+          <FormSection title="Resource offering">
+            <div className="space-y-2">
+              <CheckField checked={form.offeringOnDemand} onChange={() => onChange({ offeringOnDemand: !form.offeringOnDemand })} label="On-demand" />
+              <CheckField checked={form.offeringSpot} onChange={() => onChange({ offeringSpot: !form.offeringSpot })} label="Spot" />
+            </div>
+          </FormSection>
+        </div>
+
+        <FormSection title="Instance criteria">
+          <div className="flex flex-wrap gap-2">
+            {form.criteria.map(c => (
+              <span key={c} className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-medium">
+                {c}
+                <button onClick={() => removeCriterion(c)} className="ml-0.5 hover:text-destructive transition-colors"><X size={10} /></button>
+              </span>
+            ))}
+            <div className="relative">
+              <DropdownMenu open={showCriteriaMenu} onOpenChange={setShowCriteriaMenu}>
+                <DropdownMenuTrigger asChild>
+                  <button className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border border-dashed border-border text-muted-foreground hover:text-foreground hover:border-border/80 transition-colors">
+                    <Plus size={10} /> Add criterion
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-52">
+                  {addableCriteria.length === 0
+                    ? <DropdownMenuItem disabled className="text-xs text-muted-foreground">All criteria added</DropdownMenuItem>
+                    : addableCriteria.map(c => (
+                        <DropdownMenuItem key={c} className="text-xs" onClick={() => addCriterion(c)}>{c}</DropdownMenuItem>
+                      ))
+                  }
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
+        </FormSection>
+
+        <FormSection title="Instance prioritization">
+          <CheckField
+            checked={true}
+            onChange={() => {}}
+            label="Ranked by instance family"
+            description="Prefer specific families for more predictable performance"
+          />
+        </FormSection>
+
+        <FormSection title="CPU limit">
+          <div className="flex items-center gap-3">
+            <CheckField checked={form.cpuLimitEnabled} onChange={() => onChange({ cpuLimitEnabled: !form.cpuLimitEnabled })} label="Enable CPU limit" />
+            {form.cpuLimitEnabled && (
+              <Input placeholder="max cores" className="h-8 text-xs w-28" />
+            )}
+          </div>
+        </FormSection>
+      </div>
+
+      <RightRail title="Applicable instances" pill="live">
+        <p className="text-xs text-muted-foreground mb-3">Updates as you change constraints.</p>
+        <div className="flex items-baseline gap-2 mb-1">
+          <span className="text-3xl font-bold tabular-nums">{instances}</span>
+          <span className="text-sm text-muted-foreground">instance{instances !== 1 ? "s" : ""} match</span>
+        </div>
+        <p className="text-[0.65rem] text-muted-foreground mb-3">based on current market availability</p>
+
+        <TightnessMeter percent={tightness} />
+
+        {isTight && (
+          <div className="mt-3 p-2.5 bg-amber-500/10 rounded-md border border-dashed border-amber-500/30">
+            <p className="text-xs text-amber-700 dark:text-amber-400">
+              <strong>Heads up:</strong> only {instances} instance{instances !== 1 ? "s" : ""} match{instances === 1 ? "es" : ""}. If unavailable, Autoscaler can't spin up a node. Relax constraints.
+            </p>
+          </div>
+        )}
+
+        <div className="mt-4 border-t border-border/50 pt-3">
+          <div className="grid grid-cols-[2fr_1fr_1fr] gap-1 text-[0.6rem] font-semibold text-muted-foreground uppercase tracking-wide px-1 mb-1">
+            <div>Instance</div><div>CPU</div><div>Cost/hr</div>
+          </div>
+          {instances > 0 && (
+            <div className="grid grid-cols-[2fr_1fr_1fr] gap-1 text-xs px-1 py-2 border-t border-border/50">
+              <div className="font-medium">g5.24xlarge</div><div>96</div><div className="text-muted-foreground">$0.106</div>
+            </div>
+          )}
+          {instances > 1 && (
+            <div className="grid grid-cols-[2fr_1fr_1fr] gap-1 text-xs px-1 py-2 border-t border-border/50">
+              <div className="font-medium">m5.4xlarge</div><div>16</div><div className="text-muted-foreground">$0.048</div>
+            </div>
+          )}
+          {instances > 2 && (
+            <div className="px-1 py-2 border-t border-border/50 text-xs text-primary cursor-pointer hover:underline">
+              View all {instances} instances ↓
+            </div>
+          )}
+        </div>
+
+        <p className="text-[0.65rem] text-muted-foreground mt-4 italic">Remove a constraint to see more matches update in real time.</p>
+      </RightRail>
+    </>
+  )
+}
+
+// ─── Step 3: Features ──────────────────────────────────────────────────────────
+
+function Step3Content({ form, onChange }: { form: TemplateForm; onChange: (u: Partial<TemplateForm>) => void }) {
+  const enabledCount = [
+    form.spotFallback, form.interruptionPrediction, form.diversifySpot, form.reliableSpot,
+    form.gpuSharing, form.standbyPool, form.liveMigration, form.storageAutoscaler,
+  ].filter(Boolean).length
+
+  return (
+    <>
+      <div className="flex-1 overflow-y-auto p-6 space-y-5">
+        <div>
+          <h2 className="text-lg font-bold">Node-level features</h2>
+          <p className="text-sm text-muted-foreground mt-0.5">Toggle features on. Some have inline config; others open a dedicated setup flow.</p>
+        </div>
+
+        <div>
+          <div className="text-[0.65rem] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Spot reliability</div>
+          <div className="grid grid-cols-2 gap-2">
+            <FeatureInline
+              title="Spot fallback"
+              desc="Fall back to on-demand when spot is unavailable."
+              enabled={form.spotFallback}
+              onChange={() => onChange({ spotFallback: !form.spotFallback })}
+            >
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-muted-foreground">fallback after</span>
+                <select value={form.spotFallbackDelay} onChange={e => onChange({ spotFallbackDelay: e.target.value })} className="h-7 px-2 text-xs border border-input rounded bg-background text-foreground">
+                  <option>2 min</option>
+                  <option>5 min</option>
+                  <option>10 min</option>
+                  <option>30 min</option>
+                </select>
+              </div>
+            </FeatureInline>
+            <FeatureInline
+              title="Interruption prediction"
+              desc="CAST ML predicts spot interruptions ahead of time."
+              enabled={form.interruptionPrediction}
+              onChange={() => onChange({ interruptionPrediction: !form.interruptionPrediction })}
+            >
+              <div className="flex items-center gap-2 flex-wrap text-xs">
+                <span className="text-muted-foreground">sensitivity</span>
+                <select className="h-7 px-2 text-xs border border-input rounded bg-background text-foreground">
+                  <option>balanced</option>
+                  <option>aggressive</option>
+                  <option>conservative</option>
+                </select>
+                <CheckField checked={true} onChange={() => {}} label="auto-drain" />
+              </div>
+            </FeatureInline>
+            <FeatureSimple
+              title="Diversify spot"
+              desc="Spread across instance families to reduce blast radius."
+              enabled={form.diversifySpot}
+              onChange={() => onChange({ diversifySpot: !form.diversifySpot })}
+            />
+            <FeatureSimple
+              title="Reliable spot"
+              desc="Prefer spot instances with longer historical lifetime."
+              enabled={form.reliableSpot}
+              onChange={() => onChange({ reliableSpot: !form.reliableSpot })}
+            />
+          </div>
+        </div>
+
+        <div>
+          <div className="text-[0.65rem] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Hardware & capacity</div>
+          <div className="grid grid-cols-2 gap-2">
+            <FeatureComplex
+              title="GPU time sharing"
+              desc="Share GPUs across multiple pods. Requires device plugin config."
+              enabled={form.gpuSharing}
+              onChange={() => onChange({ gpuSharing: !form.gpuSharing })}
+              ctaLabel="Configure sharing"
+              badgeLabel="sub-wizard"
+            />
+            <FeatureComplex
+              title="Standby pool"
+              desc="Keep warm capacity ready for traffic spikes."
+              enabled={form.standbyPool}
+              onChange={() => onChange({ standbyPool: !form.standbyPool })}
+              ctaLabel="Set up pool"
+              badgeLabel="sub-wizard"
+            />
+          </div>
+        </div>
+
+        <div>
+          <div className="text-[0.65rem] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Advanced</div>
+          <div className="grid grid-cols-2 gap-2">
+            <FeatureComplex
+              title="Container live migration"
+              desc="Migrate running containers between nodes with no restart."
+              enabled={form.liveMigration}
+              onChange={() => onChange({ liveMigration: !form.liveMigration })}
+              ctaLabel="Open migration setup"
+              badgeLabel="opens in new area ↗"
+            />
+            <FeatureComplex
+              title="Storage autoscaler"
+              desc="Auto-resize attached volumes based on usage."
+              enabled={form.storageAutoscaler}
+              onChange={() => onChange({ storageAutoscaler: !form.storageAutoscaler })}
+              ctaLabel="Configure policies"
+              badgeLabel="opens in new area ↗"
+            />
+            <FeatureSimple
+              title="Edge locations"
+              desc="Deploy nodes to edge regions."
+              enabled={false}
+              onChange={() => {}}
+              locked
+              lockReason="contact sales"
+            />
+            <FeatureSimple
+              title="Windows-only features"
+              desc="Additional Windows configuration options."
+              enabled={false}
+              onChange={() => {}}
+              locked={!form.osWindows}
+              lockReason={!form.osWindows ? "requires Windows" : undefined}
+            />
+          </div>
+        </div>
+      </div>
+
+      <RightRail title="Template summary">
+        <div className="space-y-3 text-xs">
+          <div>
+            <div className="text-[0.65rem] text-muted-foreground uppercase tracking-wide mb-1">Targeting</div>
+            <div className="font-medium">{form.name || "—"}</div>
+            <div className="text-muted-foreground">{form.taintEnabled ? "tainted · " : ""}{form.nodeConfig} config</div>
+          </div>
+          <div className="border-t border-border/50 pt-3">
+            <div className="text-[0.65rem] text-muted-foreground uppercase tracking-wide mb-1">Constraints</div>
+            <div className="flex flex-wrap gap-1.5 mt-1">
+              {form.archX86 && <Badge variant="outline" className="text-[0.6rem] px-1.5 font-normal">x86_64</Badge>}
+              {form.archArm && <Badge variant="outline" className="text-[0.6rem] px-1.5 font-normal">ARM64</Badge>}
+              {form.osLinux && <Badge variant="outline" className="text-[0.6rem] px-1.5 font-normal">Linux</Badge>}
+              {form.osWindows && <Badge variant="outline" className="text-[0.6rem] px-1.5 font-normal">Windows</Badge>}
+              {form.offeringSpot && <Badge variant="outline" className="text-[0.6rem] px-1.5 font-normal bg-primary/10 text-primary border-primary/20">Spot</Badge>}
+              {form.offeringOnDemand && <Badge variant="outline" className="text-[0.6rem] px-1.5 font-normal">On-demand</Badge>}
+              {form.criteria.map(c => <Badge key={c} variant="outline" className="text-[0.6rem] px-1.5 font-normal">{c}</Badge>)}
+            </div>
+            {computeApplicableInstances(form) <= 5 && (
+              <p className="text-[0.65rem] text-destructive mt-1.5">⚠ {computeApplicableInstances(form)} applicable instance{computeApplicableInstances(form) !== 1 ? "s" : ""}</p>
+            )}
+          </div>
+          <div className="border-t border-border/50 pt-3">
+            <div className="text-[0.65rem] text-muted-foreground uppercase tracking-wide mb-1">Features on ({enabledCount})</div>
+            {form.spotFallback && <div className="text-muted-foreground">✓ Spot fallback ({form.spotFallbackDelay})</div>}
+            {form.interruptionPrediction && <div className="text-muted-foreground">✓ Interruption prediction</div>}
+            {form.diversifySpot && <div className="text-muted-foreground">✓ Diversify spot</div>}
+            {form.reliableSpot && <div className="text-muted-foreground">✓ Reliable spot</div>}
+            {form.gpuSharing && <div className="text-muted-foreground">✓ GPU time sharing</div>}
+            {form.standbyPool && <div className="text-muted-foreground">✓ Standby pool</div>}
+            {enabledCount === 0 && <div className="text-muted-foreground italic">None enabled</div>}
+          </div>
+          {form.offeringSpot && (form.spotFallback || form.interruptionPrediction) && (
+            <div className="border-t border-border/50 pt-3 p-2.5 bg-primary/5 rounded-md border border-primary/10">
+              <p className="font-medium mb-0.5">Dependencies honoured</p>
+              <p className="text-muted-foreground">Spot features are linked to the Spot offering in step 2.</p>
+            </div>
+          )}
+        </div>
+      </RightRail>
+    </>
+  )
+}
+
+// ─── Scenario picker ───────────────────────────────────────────────────────────
+
+function ScenarioPicker({ onSelect, onBlank, onCancel }: {
+  onSelect: (presetId: string) => void
+  onBlank: () => void
+  onCancel: () => void
+}) {
+  const [selected, setSelected] = useState<string>("cost-optimized")
+  const [query, setQuery] = useState("")
+
+  const filtered = PRESETS.filter(p =>
+    query === "" ||
+    p.title.toLowerCase().includes(query.toLowerCase()) ||
+    p.desc.toLowerCase().includes(query.toLowerCase())
+  )
+
+  const selectedPreset = PRESETS.find(p => p.id === selected)
+
+  function handleContinue() {
+    if (selected === "blank") {
+      onBlank()
+    } else {
+      onSelect(selected)
+    }
+  }
+
+  return (
+    <div className="flex-1 flex flex-col overflow-hidden">
+      {/* Header — matches PageHeader height and layout */}
+      <div className={cn(SURFACE_HEADER_HEIGHT, "px-6 pt-3 pb-3 border-b border-border shrink-0 flex flex-col justify-center bg-surface-paper")}>
+        <div className="mb-1.5">
+          <button
+            onClick={onCancel}
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ArrowLeft size={11} className="shrink-0" />
+            <span>Configurations</span>
+          </button>
+        </div>
+        <div className="flex items-center justify-between gap-4">
+          <h1 className="text-xl font-semibold tracking-tight text-foreground">New node template</h1>
+          <Button variant="ghost" size="sm" className="h-8 text-xs shrink-0" onClick={onCancel}>Cancel</Button>
+        </div>
+      </div>
+
+      {/* Body */}
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-2xl mx-auto px-6 py-8">
+          <div className="mb-6">
+            <h2 className="text-xl font-bold">How would you like to start?</h2>
+            <p className="text-sm text-muted-foreground mt-1">Pick a preset and we'll pre-fill sensible defaults — or start from a blank template.</p>
+          </div>
+
+          {/* Search */}
+          <div className="relative mb-6">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder='Search presets — e.g. "spot fallback", "gpu", "windows"...'
+              className="pl-9 h-9 text-sm"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+            />
+            <kbd className="absolute right-3 top-1/2 -translate-y-1/2 text-[0.6rem] text-muted-foreground border border-border rounded px-1.5 py-0.5">⌘K</kbd>
+          </div>
+
+          {/* Presets */}
+          <div className="text-[0.65rem] font-semibold text-muted-foreground uppercase tracking-wider mb-3">Start from a preset</div>
+          <div className="grid grid-cols-2 gap-3 mb-6">
+            {filtered.map(p => (
+              <button
+                key={p.id}
+                onClick={() => setSelected(p.id)}
+                className={cn(
+                  "text-left p-4 rounded-lg border-2 flex items-start gap-3 transition-colors",
+                  selected === p.id
+                    ? "border-primary bg-primary/5"
+                    : "border-border hover:border-border/70 bg-card"
+                )}
+              >
+                <span className="text-2xl leading-none mt-0.5">{p.emoji}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-semibold text-sm">{p.title}</span>
+                    {p.tag && <Badge variant="outline" className="text-[0.6rem] px-1.5 border-primary/30 text-primary">{p.tag}</Badge>}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5">{p.desc}</p>
+                </div>
+                {selected === p.id && <Check size={15} className="text-primary shrink-0 mt-0.5" />}
+              </button>
+            ))}
+            {filtered.length === 0 && (
+              <p className="col-span-2 text-sm text-muted-foreground text-center py-4">No presets match your search.</p>
+            )}
+          </div>
+
+          {/* OR divider */}
+          <div className="flex items-center gap-3 my-5">
+            <div className="flex-1 border-t border-dashed border-border" />
+            <span className="text-xs text-muted-foreground">or build your own</span>
+            <div className="flex-1 border-t border-dashed border-border" />
+          </div>
+
+          {/* Blank hero — selectable like presets */}
+          <button
+            onClick={() => setSelected("blank")}
+            className={cn(
+              "w-full text-left p-5 rounded-lg border-2 flex items-center gap-5 transition-colors",
+              selected === "blank"
+                ? "border-primary bg-primary/5"
+                : "border-dashed border-border bg-muted/20 hover:border-border/80"
+            )}
+          >
+            <div className={cn(
+              "w-16 h-16 rounded-lg border-2 border-dashed flex items-center justify-center shrink-0 transition-colors",
+              selected === "blank" ? "border-primary bg-primary/10" : "border-border bg-card"
+            )}>
+              {selected === "blank"
+                ? <Check size={24} className="text-primary" />
+                : <Plus size={24} className="text-muted-foreground" />
+              }
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-base">Blank template</span>
+                <Badge variant="outline" className="text-[0.6rem] px-1.5">full control</Badge>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">Start from scratch. Best when no preset matches your workload.</p>
+              <div className="flex gap-3 mt-2 text-[0.65rem] text-muted-foreground">
+                <span>✎ define every field</span>
+                <span>·</span>
+                <span>🛠 full feature access</span>
+                <span>·</span>
+                <span>🧑‍💻 recommended for experts</span>
+              </div>
+            </div>
+          </button>
+
+          {/* Footer */}
+          <div className="flex justify-between mt-8 pt-5 border-t border-border">
+            <Button variant="ghost" onClick={onCancel}>Cancel</Button>
+            <Button onClick={handleContinue}>
+              {selected === "blank"
+                ? "Start blank →"
+                : `Continue with ${selectedPreset?.title ?? "preset"} →`
+              }
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Edit template view ────────────────────────────────────────────────────────
+
+type EditSection = "setup" | "constraints" | "features"
+
+function EditTemplateView({ template, form, onSave, onCancel }: {
+  template: NodeTemplate
+  form: TemplateForm
+  onSave: () => void
+  onCancel: () => void
+}) {
+  const [activeSection, setActiveSection] = useState<EditSection>("constraints")
+  const [editForm, setEditForm] = useState<TemplateForm>(form)
+  const instances = computeApplicableInstances(editForm)
+  const tightness = computeTightnessPercent(editForm)
+
+  function onChange(u: Partial<TemplateForm>) {
+    setEditForm(prev => ({ ...prev, ...u }))
+  }
+
+  const enabledFeatures = [
+    editForm.spotFallback && `Spot fallback (${editForm.spotFallbackDelay})`,
+    editForm.interruptionPrediction && "Interruption prediction",
+    editForm.diversifySpot && "Diversify spot",
+    editForm.reliableSpot && "Reliable spot",
+    editForm.gpuSharing && "GPU time sharing",
+  ].filter(Boolean) as string[]
+
+  return (
+    <div className="flex-1 flex flex-col overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center h-14 border-b border-border px-6 gap-4 shrink-0 bg-surface-paper">
+        <div className="flex items-center gap-2 text-sm">
+          <button onClick={onCancel} className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors">
+            <ArrowLeft size={14} /><span>Templates</span>
+          </button>
+          <ChevronRight size={14} className="text-muted-foreground/50" />
+          <span className="font-semibold">{template.name}</span>
+          <Badge variant="outline" className="text-[0.6rem] px-1.5 ml-1">editing</Badge>
+        </div>
+        <div className="flex-1" />
+        <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={onCancel}>Cancel</Button>
+        <Button size="sm" className="h-8 text-xs" onClick={onSave}>Save changes</Button>
+      </div>
+
+      {/* 3-panel layout */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Left: summary nav cards */}
+        <div className="w-72 border-r border-border bg-muted/20 overflow-y-auto p-4 shrink-0">
+          <div className="text-[0.65rem] font-semibold text-muted-foreground uppercase tracking-wider mb-3">Template sections</div>
+          {(["setup", "constraints", "features"] as EditSection[]).map(section => {
+            const isActive = activeSection === section
+            const info = {
+              setup: {
+                num: 1, title: "Template setup",
+                status: "complete",
+                lines: [`name: ${editForm.name}`, editForm.taintEnabled ? "taint: enabled" : "no taint", "labels: default nodeSelector"],
+              },
+              constraints: {
+                num: 2, title: "Constraints",
+                status: editForm.criteria.length > 0 ? `${editForm.criteria.length} criteria` : "default",
+                lines: [
+                  [editForm.archX86 && "x86_64", editForm.archArm && "ARM64"].filter(Boolean).join(" · "),
+                  [editForm.osLinux && "Linux", editForm.osWindows && "Windows"].filter(Boolean).join(" · "),
+                  editForm.offeringSpot && !editForm.offeringOnDemand ? "Spot only"
+                    : !editForm.offeringSpot && editForm.offeringOnDemand ? "On-demand only"
+                    : "Spot + On-demand",
+                  ...(editForm.criteria.length > 0 ? [editForm.criteria.slice(0, 2).join(" · ")] : []),
+                ],
+                warn: instances <= 5 ? `only ${instances} applicable instance${instances !== 1 ? "s" : ""}` : undefined,
+              },
+              features: {
+                num: 3, title: "Features",
+                status: `${enabledFeatures.length} on`,
+                lines: enabledFeatures.length > 0 ? enabledFeatures.slice(0, 3) : ["No features enabled"],
+              },
+            }[section]
+
+            return (
+              <button
+                key={section}
+                onClick={() => setActiveSection(section)}
+                className={cn(
+                  "w-full text-left p-3 rounded-lg border mb-2.5 transition-colors",
+                  isActive ? "border-primary bg-card shadow-sm" : "border-border bg-background hover:bg-card"
+                )}
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  <div className={cn("w-5 h-5 rounded flex items-center justify-center text-[0.65rem] font-bold shrink-0", isActive ? "bg-primary text-white" : "bg-foreground text-background")}>
+                    {info.num}
+                  </div>
+                  <span className="text-sm font-semibold flex-1">{info.title}</span>
+                  <Badge variant="outline" className="text-[0.6rem] px-1.5 font-normal">{info.status}</Badge>
+                </div>
+                <div className="pl-7 space-y-0.5">
+                  {info.lines.filter(Boolean).map((line, i) => (
+                    <div key={i} className="text-xs text-muted-foreground truncate">{line}</div>
+                  ))}
+                  {"warn" in info && info.warn && (
+                    <div className="text-[0.65rem] text-destructive mt-1">⚠ {info.warn}</div>
+                  )}
+                </div>
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Center: active section content */}
+        <div className="flex-1 overflow-y-auto p-6">
+          {activeSection === "setup" && (
+            <div className="max-w-xl space-y-4">
+              <div>
+                <h2 className="text-lg font-bold">Template setup</h2>
+                <p className="text-sm text-muted-foreground mt-0.5">Name and targeting configuration.</p>
+              </div>
+              <FormSection title="Template name">
+                <Input value={editForm.name} onChange={e => onChange({ name: e.target.value })} className="max-w-sm h-8 text-sm" />
+              </FormSection>
+              <FormSection title="Linked node configuration">
+                <select value={editForm.nodeConfig} onChange={e => onChange({ nodeConfig: e.target.value })} className="h-8 px-2 text-sm border border-input rounded-md bg-background text-foreground w-44">
+                  <option>Default</option><option>prod-cpu-optimized</option><option>prod-memory-optimized</option>
+                </select>
+              </FormSection>
+              <FormSection title="Taints">
+                <CheckField checked={editForm.taintEnabled} onChange={() => onChange({ taintEnabled: !editForm.taintEnabled })} label="Taint nodes" />
+              </FormSection>
+              <div className="pt-4 border-t border-dashed border-border flex justify-end">
+                <button className="text-sm text-primary font-medium">Next: Constraints →</button>
+              </div>
+            </div>
+          )}
+
+          {activeSection === "constraints" && (
+            <div className="max-w-xl space-y-4">
+              <div>
+                <h2 className="text-lg font-bold">Constraints</h2>
+                <p className="text-sm text-muted-foreground mt-0.5">Filter which instances are eligible. More constraints = tighter pool = higher risk.</p>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <FormSection title="Architecture">
+                  <div className="space-y-2">
+                    <CheckField checked={editForm.archX86} onChange={() => onChange({ archX86: !editForm.archX86 })} label="x86_64" />
+                    <CheckField checked={editForm.archArm} onChange={() => onChange({ archArm: !editForm.archArm })} label="ARM64" />
+                  </div>
+                </FormSection>
+                <FormSection title="OS">
+                  <div className="space-y-2">
+                    <CheckField checked={editForm.osLinux} onChange={() => onChange({ osLinux: !editForm.osLinux })} label="Linux" />
+                    <CheckField checked={editForm.osWindows} onChange={() => onChange({ osWindows: !editForm.osWindows })} label="Windows" />
+                  </div>
+                </FormSection>
+                <FormSection title="Offering">
+                  <div className="space-y-2">
+                    <CheckField checked={editForm.offeringOnDemand} onChange={() => onChange({ offeringOnDemand: !editForm.offeringOnDemand })} label="On-demand" />
+                    <CheckField checked={editForm.offeringSpot} onChange={() => onChange({ offeringSpot: !editForm.offeringSpot })} label="Spot" />
+                  </div>
+                </FormSection>
+              </div>
+              <FormSection title="Instance criteria">
+                <div className="flex flex-wrap gap-2">
+                  {editForm.criteria.map(c => (
+                    <span key={c} className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-medium">
+                      {c}
+                      <button onClick={() => onChange({ criteria: editForm.criteria.filter(x => x !== c) })} className="hover:text-destructive"><X size={10} /></button>
+                    </span>
+                  ))}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border border-dashed border-border text-muted-foreground hover:text-foreground">
+                        <Plus size={10} /> Add criterion
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="w-52">
+                      {ADDABLE_CRITERIA.filter(c => !editForm.criteria.includes(c)).map(c => (
+                        <DropdownMenuItem key={c} className="text-xs" onClick={() => onChange({ criteria: [...editForm.criteria, c] })}>{c}</DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              </FormSection>
+              {instances <= 5 && (
+                <div className="p-3 bg-amber-500/10 rounded-md border border-dashed border-amber-500/30 flex items-center gap-3">
+                  <span className="text-lg">⚠</span>
+                  <div>
+                    <p className="text-xs font-medium">{instances} applicable instance{instances !== 1 ? "s" : ""} — if unavailable, Autoscaler can't spin up a node.</p>
+                    <button className="text-xs text-primary">View matches ↓</button>
+                  </div>
+                </div>
+              )}
+              <div className="pt-4 border-t border-dashed border-border flex justify-end">
+                <button className="text-sm text-primary font-medium" onClick={() => setActiveSection("features")}>Next: Features →</button>
+              </div>
+            </div>
+          )}
+
+          {activeSection === "features" && (
+            <div className="max-w-xl space-y-4">
+              <div>
+                <h2 className="text-lg font-bold">Features</h2>
+                <p className="text-sm text-muted-foreground mt-0.5">Toggle features on or off for this template.</p>
+              </div>
+              <div className="space-y-2">
+                <FeatureInline title="Spot fallback" desc="Fall back to on-demand when spot is unavailable." enabled={editForm.spotFallback} onChange={() => onChange({ spotFallback: !editForm.spotFallback })}>
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="text-muted-foreground">fallback after</span>
+                    <select value={editForm.spotFallbackDelay} onChange={e => onChange({ spotFallbackDelay: e.target.value })} className="h-7 px-2 text-xs border border-input rounded bg-background text-foreground">
+                      <option>2 min</option><option>5 min</option><option>10 min</option>
+                    </select>
+                  </div>
+                </FeatureInline>
+                <FeatureSimple title="Interruption prediction" desc="CAST ML predicts spot interruptions ahead of time." enabled={editForm.interruptionPrediction} onChange={() => onChange({ interruptionPrediction: !editForm.interruptionPrediction })} />
+                <FeatureSimple title="Diversify spot" desc="Spread across instance families." enabled={editForm.diversifySpot} onChange={() => onChange({ diversifySpot: !editForm.diversifySpot })} />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Right: contextual rail */}
+        <RightRail title={activeSection === "setup" ? "YAML preview" : activeSection === "features" ? "Template summary" : "Applicable instances"} pill={activeSection === "constraints" ? "live" : undefined}>
+          {activeSection === "constraints" && (
+            <>
+              <p className="text-xs text-muted-foreground mb-3">Updates as you change constraints.</p>
+              <div className="flex items-baseline gap-2 mb-1">
+                <span className="text-3xl font-bold tabular-nums">{instances}</span>
+                <span className="text-sm text-muted-foreground">instance{instances !== 1 ? "s" : ""} match</span>
+              </div>
+              <TightnessMeter percent={tightness} />
+              <div className="mt-4 border-t border-border/50 pt-3 space-y-1.5 text-xs">
+                <div className="grid grid-cols-[2fr_1fr_1fr] gap-1 text-[0.6rem] font-semibold text-muted-foreground uppercase tracking-wide px-1">
+                  <div>Instance</div><div>CPU</div><div>Cost/hr</div>
+                </div>
+                <div className="grid grid-cols-[2fr_1fr_1fr] gap-1 px-1 py-1.5 border-t border-border/50">
+                  <div className="font-medium">g5.24xlarge</div><div>96</div><div className="text-muted-foreground">$0.106</div>
+                </div>
+              </div>
+            </>
+          )}
+          {activeSection === "setup" && <YamlPreview form={editForm} />}
+          {activeSection === "features" && (
+            <div className="space-y-2 text-xs">
+              <div className="text-muted-foreground font-medium">Enabled features ({enabledFeatures.length})</div>
+              {enabledFeatures.map(f => <div key={f} className="text-muted-foreground">✓ {f}</div>)}
+              {enabledFeatures.length === 0 && <div className="text-muted-foreground italic">None enabled</div>}
+            </div>
+          )}
+          <p className="text-[0.65rem] text-muted-foreground mt-6 italic">Right rail updates based on the active section.</p>
+        </RightRail>
+      </div>
+    </div>
+  )
+}
+
+// ─── Main page ─────────────────────────────────────────────────────────────────
 
 export function Configurations() {
   const [templates, setTemplates] = useState(INITIAL_TEMPLATES)
   const [search, setSearch] = useState("")
-  const total = templates.length
+  const [mode, setMode] = useState<FlowMode>("list")
+  const [form, setForm] = useState<TemplateForm>(DEFAULT_FORM)
+  const [editTarget, setEditTarget] = useState<NodeTemplate | null>(null)
+
+  function startCreate() { setMode("scenario") }
+
+  function onSelectPreset(presetId: string) {
+    const preset = PRESETS.find(p => p.id === presetId)
+    setForm({ ...DEFAULT_FORM, ...(PRESET_OVERRIDES[presetId] ?? {}), name: preset?.title.toLowerCase().replace(/\s+/g, "-") ?? "" })
+
+    setMode("step1")
+  }
+
+  function onBlank() {
+    setForm(DEFAULT_FORM)
+
+    setMode("step1")
+  }
+
+  function onBack() {
+    if (mode === "step2") setMode("step1")
+    else if (mode === "step3") setMode("step2")
+  }
+
+  function onContinue() {
+    if (mode === "step1") setMode("step2")
+    else if (mode === "step2") setMode("step3")
+    else if (mode === "step3") finishCreate()
+  }
+
+  function finishCreate() {
+    const offering: ResOffering = form.offeringSpot && form.offeringOnDemand ? "ALL OFFERINGS" : form.offeringSpot ? "SPOT" : "ON-DEMAND"
+    setTemplates(prev => [...prev, {
+      id: String(Date.now()),
+      name: form.name || "new-template",
+      nodeConfig: form.nodeConfig,
+      offering,
+      nodes: 0,
+      cpuEfficiency: 0,
+      memEfficiency: 0,
+      enabled: true,
+      isDefault: false,
+    }])
+    setMode("list")
+    setForm(DEFAULT_FORM)
+
+  }
+
+  function cancelFlow() {
+    setMode("list")
+    setForm(DEFAULT_FORM)
+
+    setEditTarget(null)
+  }
+
+  function startEdit(t: NodeTemplate) {
+    setEditTarget(t)
+    setForm(templateToForm(t))
+    setMode("edit")
+  }
 
   function toggleEnabled(id: string) {
-    setTemplates((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, enabled: !t.enabled } : t))
-    )
+    setTemplates(prev => prev.map(t => (t.id === id ? { ...t, enabled: !t.enabled } : t)))
   }
 
   function deleteTemplate(id: string) {
-    setTemplates((prev) => prev.filter((t) => t.id !== id))
+    setTemplates(prev => prev.filter(t => t.id !== id))
   }
 
-  const filtered = templates.filter(
-    (t) =>
-      t.name.toLowerCase().includes(search.toLowerCase()) ||
-      t.nodeConfig.toLowerCase().includes(search.toLowerCase())
-  )
+  const isWizardOrEdit = mode !== "list"
+  const step = mode === "step1" ? 1 : mode === "step2" ? 2 : mode === "step3" ? 3 : null
 
-  const spotCount = templates.filter((t) => t.offering === "SPOT").length
-  const onDemandCount = templates.filter((t) => t.offering === "ON-DEMAND").length
-  const allCount = templates.filter((t) => t.offering === "ALL OFFERINGS").length
-
-  const legendColor: Record<ResOffering, string> = {
-    SPOT: "var(--primary)",
-    "ON-DEMAND": "var(--chart-4)",
-    "ALL OFFERINGS": "var(--chart-2)",
-  }
+  const listBreadcrumbs = [
+    { label: "Acme Corp", href: "/overview" },
+    { label: "Staging", href: "/cluster/dashboard" },
+    { label: "Node Autoscaling", href: "/cluster/node-autoscaling" },
+    { label: "Configurations" },
+  ]
 
   return (
     <AppLayout
       pageTitle="Configurations"
-      breadcrumbs={[
-        { label: "Acme Corp", href: "/overview" },
-        { label: "Staging", href: "/cluster/dashboard" },
-        { label: "Node Autoscaling", href: "/cluster/node-autoscaling" },
-        { label: "Configurations" },
-      ]}
+      breadcrumbs={listBreadcrumbs}
       activeHref="/cluster/node-autoscaling/configurations"
+      hideHeader={isWizardOrEdit}
     >
-      {/* Page-level tabs */}
-      <div className="-mx-4 -mt-4 mb-5 flex border-b border-border px-4">
-        {PAGE_TABS.map((tab) => (
-          <button
-            key={tab.label}
-            className={cn(
-              "px-4 py-2.5 text-xs font-medium border-b-2 -mb-px transition-colors",
-              tab.active
-                ? "border-primary text-foreground"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            )}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      {/* ── Scenario picker ── */}
+      {mode === "scenario" && (
+        <ScenarioPicker onSelect={onSelectPreset} onBlank={onBlank} onCancel={cancelFlow} />
+      )}
 
-      {/* Section subtitle + CTAs */}
-      <div className="flex items-center justify-between mb-5">
-        <h2 className="text-sm font-semibold text-foreground">Node templates</h2>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 text-xs hover:bg-accent hover:text-accent-foreground transition-colors"
-          >
-            Provision test
-          </Button>
-          <Button
-            size="sm"
-            className="h-8 text-xs hover:bg-primary/90 transition-colors"
-          >
-            Create template
-          </Button>
+      {/* ── Wizard ── */}
+      {step !== null && (
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <WizardHeader onCancel={cancelFlow} />
+          <WizardStepper step={step} />
+          <div className="flex-1 flex overflow-hidden">
+            {step === 1 && <Step1Content form={form} onChange={u => setForm(p => ({ ...p, ...u }))} />}
+            {step === 2 && <Step2Content form={form} onChange={u => setForm(p => ({ ...p, ...u }))} />}
+            {step === 3 && <Step3Content form={form} onChange={u => setForm(p => ({ ...p, ...u }))} />}
+          </div>
+          <WizardFooter step={step} onBack={onBack} onContinue={onContinue} />
         </div>
-      </div>
+      )}
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-2 gap-3 mb-5">
-        {/* Templates breakdown */}
-        <Card className="py-0 gap-0">
-          <CardContent className="p-4 flex items-center gap-5">
-            <DonutChart templates={templates} />
-            <div className="flex-1 min-w-0">
-              <p className="text-[0.6875rem] text-muted-foreground mb-3 uppercase tracking-wide font-medium">
-                Templates by offering
-              </p>
-              {(
-                [
-                  ["SPOT", spotCount],
-                  ["ON-DEMAND", onDemandCount],
-                  ["ALL OFFERINGS", allCount],
-                ] as [ResOffering, number][]
-              ).map(([offering, count]) => (
-                <div key={offering} className="flex items-center justify-between mb-2 last:mb-0">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="w-1.5 h-1.5 rounded-full shrink-0"
-                      style={{ backgroundColor: legendColor[offering] }}
-                    />
-                    <span className="text-xs text-muted-foreground">{offering}</span>
-                  </div>
-                  <span className="text-xs font-medium tabular-nums">{count}</span>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Features enabled */}
-        <Card className="py-0 gap-0">
-          <CardContent className="p-4">
-            <p className="text-[0.6875rem] text-muted-foreground mb-3 uppercase tracking-wide font-medium">
-              Features enabled
-            </p>
-            <div className="space-y-2">
-              {FEATURES.map((feat) => {
-                const Icon = feat.icon
-                return (
-                  <div key={feat.label} className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Icon size={13} className="text-muted-foreground shrink-0" />
-                      <span className="text-xs">{feat.label}</span>
-                    </div>
-                    <span className="text-xs tabular-nums">
-                      <span
-                        className={
-                          feat.enabled > 0 ? "text-foreground font-medium" : "text-muted-foreground"
-                        }
-                      >
-                        {feat.enabled}
-                      </span>
-                      <span className="text-muted-foreground">/{total}</span>
-                    </span>
-                  </div>
-                )
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Search */}
-      <div className="relative mb-4">
-        <Search
-          size={14}
-          className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none"
+      {/* ── Edit view ── */}
+      {mode === "edit" && editTarget && (
+        <EditTemplateView
+          template={editTarget}
+          form={form}
+          onSave={cancelFlow}
+          onCancel={cancelFlow}
         />
-        <Input
-          placeholder="Search templates..."
-          className="pl-9 h-8 text-xs bg-surface-paper border-border dark:border-border-subtle focus-visible:bg-card rounded"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-      </div>
+      )}
 
-      {/* Table */}
-      <div className="rounded-lg overflow-hidden ring-1 ring-border-subtle">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="border-b border-border bg-muted/40">
-              <th className="px-4 py-2.5 text-left font-medium text-muted-foreground uppercase tracking-wide text-[0.6rem]">
-                Template name
-              </th>
-              <th className="px-4 py-2.5 text-left font-medium text-muted-foreground uppercase tracking-wide text-[0.6rem]">
-                Node configuration
-              </th>
-              <th className="px-4 py-2.5 text-left font-medium text-muted-foreground uppercase tracking-wide text-[0.6rem] w-[130px]">
-                Res. offering
-              </th>
-              <th className="px-4 py-2.5 text-left font-medium text-muted-foreground uppercase tracking-wide text-[0.6rem] w-[72px]">
-                Nodes
-              </th>
-              <th className="px-4 py-2.5 text-left font-medium text-muted-foreground uppercase tracking-wide text-[0.6rem] w-[130px]">
-                CPU eff.
-              </th>
-              <th className="px-4 py-2.5 text-left font-medium text-muted-foreground uppercase tracking-wide text-[0.6rem] w-[130px]">
-                Mem eff.
-              </th>
-              <th className="w-10" />
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((t) => (
-              <tr
-                key={t.id}
-                tabIndex={0}
+      {/* ── Listing ── */}
+      {mode === "list" && (
+        <>
+          {/* Page-level tabs */}
+          <div className="-mx-4 -mt-4 mb-5 flex border-b border-border px-4">
+            {PAGE_TABS.map((tab) => (
+              <button
+                key={tab.label}
                 className={cn(
-                  "border-b border-border/50 last:border-0 transition-colors hover:bg-muted/25",
-                  !t.enabled && "opacity-50"
+                  "px-4 py-2.5 text-xs font-medium border-b-2 -mb-px transition-colors",
+                  tab.active
+                    ? "border-primary text-foreground"
+                    : "border-transparent text-muted-foreground hover:text-foreground"
                 )}
               >
-                {/* Template name */}
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-2.5">
-                    <TemplateToggle
-                      checked={t.enabled}
-                      onChange={() => toggleEnabled(t.id)}
-                      disabled={t.isDefault}
-                    />
-                    {t.isDefault ? (
-                      <Star size={12} className="shrink-0 fill-amber-400 text-amber-400" />
-                    ) : (
-                      <span className="w-3 shrink-0" />
-                    )}
-                    <span
-                      className={cn(
-                        "font-medium truncate max-w-[180px]",
-                        !t.enabled && "text-muted-foreground"
-                      )}
-                    >
-                      {t.name}
-                    </span>
-                  </div>
-                </td>
-
-                {/* Node config */}
-                <td className="px-4 py-3 text-muted-foreground">{t.nodeConfig}</td>
-
-                {/* Offering */}
-                <td className="px-4 py-3">
-                  <OfferingBadge offering={t.offering} />
-                </td>
-
-                {/* Nodes */}
-                <td className="px-4 py-3 tabular-nums">{t.nodes}</td>
-
-                {/* CPU efficiency */}
-                <td className="px-4 py-3">
-                  <MiniBar value={t.cpuEfficiency} />
-                </td>
-
-                {/* Memory efficiency */}
-                <td className="px-4 py-3">
-                  <MiniBar value={t.memEfficiency} />
-                </td>
-
-                {/* Actions */}
-                <td className="px-2 py-3">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
-                      >
-                        <MoreHorizontal size={14} />
-                        <span className="sr-only">Actions</span>
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-40">
-                      <DropdownMenuItem className="text-xs gap-2">
-                        <Pencil size={12} /> Edit
-                      </DropdownMenuItem>
-                      <DropdownMenuItem className="text-xs gap-2">
-                        <Copy size={12} /> Duplicate
-                      </DropdownMenuItem>
-                      {!t.isDefault && (
-                        <>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            className="text-xs gap-2 text-destructive focus:text-destructive"
-                            onClick={() => deleteTemplate(t.id)}
-                          >
-                            <Trash2 size={12} /> Delete
-                          </DropdownMenuItem>
-                        </>
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </td>
-              </tr>
+                {tab.label}
+              </button>
             ))}
+          </div>
 
-            {filtered.length === 0 && (
-              <tr>
-                <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground text-xs">
-                  No templates match your search.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+          {/* Section subtitle + CTAs */}
+          <div className="flex items-center justify-between mb-5">
+            <h2 className="text-sm font-semibold text-foreground">Node templates</h2>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" className="h-8 text-xs">Provision test node</Button>
+              <Button size="sm" className="h-8 text-xs" onClick={startCreate}>Create template</Button>
+            </div>
+          </div>
+
+          {/* Summary cards */}
+          <div className="grid grid-cols-2 gap-3 mb-5">
+            <Card className="py-0 gap-0">
+              <CardContent className="p-4 flex items-center gap-5">
+                <DonutChart templates={templates} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[0.6875rem] text-muted-foreground mb-3 uppercase tracking-wide font-medium">Templates by offering</p>
+                  {(
+                    [["SPOT", templates.filter(t => t.offering === "SPOT").length],
+                     ["ON-DEMAND", templates.filter(t => t.offering === "ON-DEMAND").length],
+                     ["ALL OFFERINGS", templates.filter(t => t.offering === "ALL OFFERINGS").length],
+                    ] as [ResOffering, number][]
+                  ).map(([offering, count]) => (
+                    <div key={offering} className="flex items-center justify-between mb-2 last:mb-0">
+                      <div className="flex items-center gap-2">
+                        <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: offering === "SPOT" ? "var(--primary)" : offering === "ON-DEMAND" ? "var(--chart-4)" : "var(--chart-2)" }} />
+                        <span className="text-xs text-muted-foreground">{offering}</span>
+                      </div>
+                      <span className="text-xs font-medium tabular-nums">{count}</span>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="py-0 gap-0">
+              <CardContent className="p-4">
+                <p className="text-[0.6875rem] text-muted-foreground mb-3 uppercase tracking-wide font-medium">Features enabled</p>
+                <div className="space-y-2">
+                  {FEATURES.map((feat) => {
+                    const Icon = feat.icon
+                    return (
+                      <div key={feat.label} className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Icon size={13} className="text-muted-foreground shrink-0" />
+                          <span className="text-xs">{feat.label}</span>
+                        </div>
+                        <span className="text-xs tabular-nums">
+                          <span className={feat.enabled > 0 ? "text-foreground font-medium" : "text-muted-foreground"}>{feat.enabled}</span>
+                          <span className="text-muted-foreground">/{templates.length}</span>
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Search */}
+          <div className="relative mb-4">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+            <Input
+              placeholder="Search templates..."
+              className="pl-9 h-8 text-xs bg-surface-paper border-border dark:border-border-subtle focus-visible:bg-card rounded"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+
+          {/* Table */}
+          <div className="rounded-lg overflow-hidden ring-1 ring-border-subtle">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-border bg-muted/40">
+                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground uppercase tracking-wide text-[0.6rem]">Template name</th>
+                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground uppercase tracking-wide text-[0.6rem]">Node configuration</th>
+                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground uppercase tracking-wide text-[0.6rem] w-[130px]">Res. offering</th>
+                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground uppercase tracking-wide text-[0.6rem] w-[72px]">Nodes</th>
+                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground uppercase tracking-wide text-[0.6rem] w-[130px]">CPU eff.</th>
+                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground uppercase tracking-wide text-[0.6rem] w-[130px]">Mem eff.</th>
+                  <th className="w-10" />
+                </tr>
+              </thead>
+              <tbody>
+                {templates
+                  .filter(t =>
+                    t.name.toLowerCase().includes(search.toLowerCase()) ||
+                    t.nodeConfig.toLowerCase().includes(search.toLowerCase())
+                  )
+                  .map((t) => (
+                    <tr
+                      key={t.id}
+                      tabIndex={0}
+                      className={cn("border-b border-border/50 last:border-0 transition-colors hover:bg-muted/25", !t.enabled && "opacity-50")}
+                    >
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2.5">
+                          <TemplateToggle checked={t.enabled} onChange={() => toggleEnabled(t.id)} disabled={t.isDefault} />
+                          {t.isDefault ? <Star size={12} className="shrink-0 fill-amber-400 text-amber-400" /> : <span className="w-3 shrink-0" />}
+                          <span className={cn("font-medium truncate max-w-[180px]", !t.enabled && "text-muted-foreground")}>{t.name}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">{t.nodeConfig}</td>
+                      <td className="px-4 py-3"><OfferingBadge offering={t.offering} /></td>
+                      <td className="px-4 py-3 tabular-nums">{t.nodes}</td>
+                      <td className="px-4 py-3"><MiniBar value={t.cpuEfficiency} /></td>
+                      <td className="px-4 py-3"><MiniBar value={t.memEfficiency} /></td>
+                      <td className="px-2 py-3">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground" aria-haspopup="menu">
+                              <MoreHorizontal size={14} />
+                              <span className="sr-only">Actions</span>
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-40">
+                            <DropdownMenuItem className="text-xs gap-2" onClick={() => startEdit(t)}>
+                              <Pencil size={12} /> Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuItem className="text-xs gap-2"><Copy size={12} /> Duplicate</DropdownMenuItem>
+                            {!t.isDefault && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem className="text-xs gap-2 text-destructive focus:text-destructive" onClick={() => deleteTemplate(t.id)}>
+                                  <Trash2 size={12} /> Delete
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </td>
+                    </tr>
+                  ))}
+                {templates.filter(t => t.name.toLowerCase().includes(search.toLowerCase()) || t.nodeConfig.toLowerCase().includes(search.toLowerCase())).length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground text-xs">No templates match your search.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </AppLayout>
   )
 }

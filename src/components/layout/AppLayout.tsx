@@ -14,6 +14,7 @@ type AppLayoutProps = {
   sidebarView?: "org" | "cluster"
   activeHref?: string
   pageActions?: ReactNode
+  hideHeader?: boolean
 }
 
 export function AppLayout({
@@ -23,6 +24,7 @@ export function AppLayout({
   sidebarView = "cluster",
   activeHref = "/cluster/dashboard",
   pageActions,
+  hideHeader = false,
 }: AppLayoutProps) {
   const { isCollapsed, expandedWidth, collapse, expand, setExpandedWidth } =
     useSidebarState()
@@ -90,24 +92,35 @@ export function AppLayout({
           onCollapse={collapse}
           onResizeEnd={setExpandedWidth}
         />
-        <div className="flex-1 flex flex-col overflow-hidden bg-surface-paper">
-          <div className="relative shrink-0">
-            <PageHeader title={pageTitle} breadcrumbs={breadcrumbs} actions={pageActions} />
-            {isCollapsed && (
-              <button
-                onClick={expand}
-                aria-label="Expand sidebar"
-                className={cn(
-                  SURFACE_HEADER_HEIGHT,
-                  "absolute left-0 inset-y-0 w-7 flex items-center justify-center",
-                  "text-muted-foreground/30 hover:text-muted-foreground/70 transition-colors"
-                )}
-              >
-                <ChevronRight size={13} />
-              </button>
-            )}
-          </div>
-          <div className="flex-1 overflow-auto p-4">
+        <div className="flex-1 flex flex-col overflow-hidden bg-surface-paper relative">
+          {!hideHeader && (
+            <div className="relative shrink-0">
+              <PageHeader title={pageTitle} breadcrumbs={breadcrumbs} actions={pageActions} />
+              {isCollapsed && (
+                <button
+                  onClick={expand}
+                  aria-label="Expand sidebar"
+                  className={cn(
+                    SURFACE_HEADER_HEIGHT,
+                    "absolute left-0 inset-y-0 w-7 flex items-center justify-center",
+                    "text-muted-foreground/30 hover:text-muted-foreground/70 transition-colors"
+                  )}
+                >
+                  <ChevronRight size={13} />
+                </button>
+              )}
+            </div>
+          )}
+          {hideHeader && isCollapsed && (
+            <button
+              onClick={expand}
+              aria-label="Expand sidebar"
+              className="absolute left-0 top-0 z-10 h-14 w-7 flex items-center justify-center text-muted-foreground/30 hover:text-muted-foreground/70 transition-colors"
+            >
+              <ChevronRight size={13} />
+            </button>
+          )}
+          <div className={cn("flex-1 overflow-hidden", hideHeader ? "flex flex-col" : "overflow-auto p-4")}>
             {children}
           </div>
         </div>
