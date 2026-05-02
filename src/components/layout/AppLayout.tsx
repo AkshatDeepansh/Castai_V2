@@ -28,6 +28,7 @@ export function AppLayout({
 }: AppLayoutProps) {
   const { isCollapsed, expandedWidth, collapse, expand, setExpandedWidth } =
     useSidebarState()
+  const toggleSidebar = isCollapsed ? expand : collapse
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -95,20 +96,7 @@ export function AppLayout({
         <div className="flex-1 flex flex-col overflow-hidden bg-surface-paper relative">
           {!hideHeader && (
             <div className="relative shrink-0">
-              <PageHeader title={pageTitle} breadcrumbs={breadcrumbs} actions={pageActions} />
-              {isCollapsed && (
-                <button
-                  onClick={expand}
-                  aria-label="Expand sidebar"
-                  className={cn(
-                    SURFACE_HEADER_HEIGHT,
-                    "absolute left-0 inset-y-0 w-7 flex items-center justify-center",
-                    "text-muted-foreground/30 hover:text-muted-foreground/70 transition-colors"
-                  )}
-                >
-                  <ChevronRight size={13} />
-                </button>
-              )}
+              <PageHeader title={pageTitle} breadcrumbs={breadcrumbs} actions={pageActions} onSidebarToggle={toggleSidebar} />
             </div>
           )}
           {hideHeader && isCollapsed && (

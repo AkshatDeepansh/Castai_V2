@@ -1,7 +1,9 @@
 import type { ReactNode } from "react"
+import { PanelLeft } from "lucide-react"
 import { IconChevronRight } from "@tabler/icons-react"
 import { cn } from "@/lib/utils"
 import { SURFACE_HEADER_HEIGHT } from "@/config/layout"
+import { Button } from "@/components/ui/button"
 
 type Crumb = {
   label: string
@@ -12,6 +14,7 @@ type PageHeaderProps = {
   title?: string
   breadcrumbs?: Crumb[]
   actions?: ReactNode
+  onSidebarToggle?: () => void
 }
 
 const defaultBreadcrumbs: Crumb[] = [
@@ -24,11 +27,25 @@ export function PageHeader({
   title = "Dashboard",
   breadcrumbs = defaultBreadcrumbs,
   actions,
+  onSidebarToggle,
 }: PageHeaderProps) {
   return (
-    <div className={cn(SURFACE_HEADER_HEIGHT, "px-6 pt-3 pb-3 border-b border-border shrink-0 flex flex-col justify-center")}>
+    <div className={cn(SURFACE_HEADER_HEIGHT, "px-4 pt-3 pb-3 border-b border-border shrink-0 flex flex-col justify-center")}>
       <nav aria-label="Breadcrumb" className="mb-1.5">
         <ol className="flex items-center gap-1 text-xs text-muted-foreground">
+          {onSidebarToggle && (
+            <li className="flex items-center">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={onSidebarToggle}
+                aria-label="Toggle sidebar"
+                className="h-5 w-5 mr-1 text-muted-foreground"
+              >
+                <PanelLeft size={13} />
+              </Button>
+            </li>
+          )}
           {breadcrumbs.map((crumb, i) => {
             const isLast = i === breadcrumbs.length - 1
             return (

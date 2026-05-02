@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react"
+import { useState, useRef, useCallback, useEffect } from "react"
 import {
   Star,
   Search,
@@ -61,7 +61,7 @@ type TemplateForm = {
   osWindows: boolean
   offeringSpot: boolean
   offeringOnDemand: boolean
-  criteria: string[]
+  criteria: Record<string, string>
   cpuLimitEnabled: boolean
   spotFallback: boolean
   spotFallbackDelay: string
@@ -89,7 +89,7 @@ const DEFAULT_FORM: TemplateForm = {
   osWindows: false,
   offeringSpot: true,
   offeringOnDemand: false,
-  criteria: [],
+  criteria: {},
   cpuLimitEnabled: false,
   spotFallback: false,
   spotFallbackDelay: "5 min",
@@ -106,14 +106,14 @@ const PRESET_OVERRIDES: Record<string, Partial<TemplateForm>> = {
   "cost-optimized": {
     offeringSpot: true, offeringOnDemand: false,
     spotFallback: true, interruptionPrediction: true,
-    criteria: ["Min CPU: 2", "Max CPU: 32"],
+    criteria: { minCpu: "2", maxCpu: "32" },
   },
   "stable-production": {
     offeringSpot: false, offeringOnDemand: true,
     taintEnabled: true,
   },
   "gpu-workloads": {
-    criteria: ["GPU manufacturer: NVIDIA", "Min GPU: 1"],
+    criteria: { gpuManufacturer: "NVIDIA", minGpu: "1" },
     gpuSharing: true, diversifySpot: true,
   },
   "windows-fleet": {
@@ -122,7 +122,7 @@ const PRESET_OVERRIDES: Record<string, Partial<TemplateForm>> = {
   },
   "burstable-dev": {
     offeringSpot: true,
-    criteria: ["Min CPU: 1", "Max CPU: 8"],
+    criteria: { minCpu: "1", maxCpu: "8" },
   },
 }
 
@@ -134,11 +134,34 @@ const PRESETS = [
   { id: "burstable-dev", emoji: "⚡", title: "Burstable dev", desc: "Burstable, small CPU range, spot." },
 ]
 
-const ADDABLE_CRITERIA = [
-  "Min CPU: 16", "Max CPU: 96", "Min memory: 32 GiB",
-  "GPU manufacturer: NVIDIA", "Storage optimized: Yes",
-  "Compute optimized: Yes", "Burstable: Yes", "Bare metal: Yes",
-  "Min GPU: 1", "CPU vendor: AMD",
+type ConstraintType = "boolean" | "number" | "select" | "multiselect"
+type ConstraintDef = {
+  key: string; label: string; type: ConstraintType
+  options?: string[]; unit?: string; placeholder?: string
+}
+
+const INSTANCE_FAMILIES = ["a1","c4","c5","c5a","c5n","c6a","c6g","c6i","c7g","c7i","d3","g4dn","g5","i3","i4i","m4","m5","m5a","m6a","m6g","m6i","m7g","m7i","p3","p4d","p5","r5","r5a","r6a","r6g","r6i","r7g","r7i","t3","t3a","t4g","x2idn","z1d"]
+const GPU_NAMES = ["A100","A10G","H100","K80","L4","L40S","T4","V100"]
+
+const CONSTRAINT_DEFS: ConstraintDef[] = [
+  { key: "computeOptimized",  label: "Compute optimized",  type: "boolean" },
+  { key: "storageOptimized",  label: "Storage optimized",  type: "boolean" },
+  { key: "burstable",         label: "Burstable",          type: "boolean" },
+  { key: "bareMetal",         label: "Bare metal",         type: "boolean" },
+  { key: "fractionalGpus",    label: "Fractional GPUs",    type: "boolean" },
+  { key: "includeFamilies",   label: "Include families",   type: "multiselect", options: INSTANCE_FAMILIES },
+  { key: "excludeFamilies",   label: "Exclude families",   type: "multiselect", options: INSTANCE_FAMILIES },
+  { key: "minCpu",            label: "Min CPU",            type: "number",  placeholder: "e.g. 4" },
+  { key: "maxCpu",            label: "Max CPU",            type: "number",  placeholder: "e.g. 64" },
+  { key: "minMemory",         label: "Min memory",         type: "number",  unit: "GiB", placeholder: "e.g. 16" },
+  { key: "maxMemory",         label: "Max memory",         type: "number",  unit: "GiB", placeholder: "e.g. 256" },
+  { key: "cpuVendor",         label: "CPU vendor",         type: "select",  options: ["AMD", "Intel", "AWS Graviton"] },
+  { key: "availabilityZones", label: "Availability zones", type: "multiselect", options: ["us-east-1a","us-east-1b","us-east-1c","us-west-2a","us-west-2b","us-west-2c","eu-west-1a","eu-west-1b","eu-central-1a"] },
+  { key: "gpuManufacturer",   label: "GPU manufacturer",   type: "select",  options: ["NVIDIA", "AMD", "Intel"] },
+  { key: "includeGpuName",    label: "Include GPU name",   type: "multiselect", options: GPU_NAMES },
+  { key: "excludeGpuName",    label: "Exclude GPU name",   type: "multiselect", options: GPU_NAMES },
+  { key: "minGpu",            label: "Min GPU",            type: "number",  placeholder: "e.g. 1" },
+  { key: "maxGpu",            label: "Max GPU",            type: "number",  placeholder: "e.g. 8" },
 ]
 
 const INITIAL_TEMPLATES: NodeTemplate[] = [
@@ -166,7 +189,7 @@ const FEATURES = [
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
 function computeApplicableInstances(form: TemplateForm): number {
-  const n = form.criteria.length
+  const n = Object.keys(form.criteria).length
   if (n === 0) return 126
   if (n <= 2) return 48
   if (n <= 4) return 12
@@ -269,24 +292,27 @@ function DonutChart({ templates }: { templates: NodeTemplate[] }) {
 
 // ─── Wizard shared primitives ──────────────────────────────────────────────────
 
-function CheckField({ checked, onChange, label, description, disabled }: {
-  checked: boolean; onChange: () => void; label: string; description?: string; disabled?: boolean
+function CheckField({ checked, onChange, label, description, disabled, suffix }: {
+  checked: boolean; onChange: () => void; label: string; description?: string; disabled?: boolean; suffix?: React.ReactNode
 }) {
   return (
-    <label className={cn("flex items-start gap-2.5 cursor-pointer select-none", disabled && "opacity-50 pointer-events-none")}>
+    <label className={cn("flex items-center gap-2.5 cursor-pointer select-none", disabled && "opacity-50 pointer-events-none")}>
       <button
         role="checkbox"
         aria-checked={checked}
         onClick={onChange}
         className={cn(
-          "mt-0.5 h-4 w-4 rounded border border-input flex items-center justify-center shrink-0 transition-colors",
+          "h-4 w-4 rounded border border-input flex items-center justify-center shrink-0 transition-colors",
           checked ? "bg-primary border-primary" : "bg-background"
         )}
       >
         {checked && <Check size={10} className="text-primary-foreground" />}
       </button>
       <div>
-        <span className="text-sm leading-none">{label}</span>
+        <div className="flex items-center gap-1.5">
+          <span className="text-sm leading-none">{label}</span>
+          {suffix}
+        </div>
         {description && <p className="text-xs text-muted-foreground mt-0.5">{description}</p>}
       </div>
     </label>
@@ -339,7 +365,7 @@ function RightRail({ title, pill, children }: { title: string; pill?: string; ch
   return (
     <div
       ref={railRef}
-      className="relative shrink-0 border-l border-border bg-background overflow-y-auto transition-[width] duration-0"
+      className="relative shrink-0 border-l border-border bg-surface-paper overflow-y-auto transition-[width] duration-0"
       style={{ width }}
     >
       {/* Drag handle */}
@@ -350,7 +376,7 @@ function RightRail({ title, pill, children }: { title: string; pill?: string; ch
         <div className="w-px h-10 rounded-full bg-border opacity-0 group-hover/handle:opacity-100 transition-opacity duration-150" />
       </div>
       <div className="p-5">
-        <div className="flex items-center gap-2 mb-4">
+        <div className="flex items-center gap-2 mb-1.5">
           <span className="text-xs font-bold uppercase tracking-wider">{title}</span>
           {pill && <Badge variant="outline" className="text-[0.6rem] px-1.5">{pill}</Badge>}
         </div>
@@ -364,13 +390,75 @@ function TightnessMeter({ percent }: { percent: number }) {
   const isTight = percent >= 80
   return (
     <div className="space-y-1.5">
+      <div className="text-xs font-medium text-foreground">Chances of fallback</div>
+      <div className="relative h-2.5 rounded-full overflow-visible" style={{ background: "linear-gradient(90deg,#22c55e 0%,#eab308 50%,#ef4444 100%)" }}>
+        <div className="absolute top-1/2 -translate-y-1/2 w-0.5 h-4 bg-foreground rounded-full shadow-sm" style={{ left: `${percent}%` }} />
+      </div>
       <div className="flex justify-between text-[0.65rem] text-muted-foreground">
         <span>loose · safer</span>
         <span className={isTight ? "text-destructive font-semibold" : ""}>tight · risky</span>
       </div>
-      <div className="relative h-2.5 rounded-full overflow-visible" style={{ background: "linear-gradient(90deg,#22c55e 0%,#eab308 50%,#ef4444 100%)" }}>
-        <div className="absolute top-1/2 -translate-y-1/2 w-0.5 h-4 bg-foreground rounded-full shadow-sm" style={{ left: `${percent}%` }} />
+    </div>
+  )
+}
+
+const MOCK_INSTANCES = [
+  { name: "c4-highcpu-16",  cost: "$0.05",  cpu: 16,  mem: "32 GiB",  gpu: 0, gpuType: "—"    },
+  { name: "c4-highcpu-32",  cost: "$0.05",  cpu: 32,  mem: "64 GiB",  gpu: 0, gpuType: "—"    },
+  { name: "m5.4xlarge",     cost: "$0.048", cpu: 16,  mem: "64 GiB",  gpu: 0, gpuType: "—"    },
+  { name: "m5.8xlarge",     cost: "$0.048", cpu: 32,  mem: "128 GiB", gpu: 0, gpuType: "—"    },
+  { name: "c5.2xlarge",     cost: "$0.042", cpu: 8,   mem: "16 GiB",  gpu: 0, gpuType: "—"    },
+  { name: "c5.4xlarge",     cost: "$0.042", cpu: 16,  mem: "32 GiB",  gpu: 0, gpuType: "—"    },
+  { name: "r5.2xlarge",     cost: "$0.063", cpu: 8,   mem: "64 GiB",  gpu: 0, gpuType: "—"    },
+  { name: "g5.24xlarge",    cost: "$0.106", cpu: 96,  mem: "192 GiB", gpu: 4, gpuType: "A10G"  },
+  { name: "p3.2xlarge",     cost: "$0.312", cpu: 8,   mem: "61 GiB",  gpu: 1, gpuType: "V100"  },
+  { name: "t3.2xlarge",     cost: "$0.033", cpu: 8,   mem: "32 GiB",  gpu: 0, gpuType: "—"    },
+]
+
+function InstanceTable({ rows }: { rows: typeof MOCK_INSTANCES }) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [w, setW] = useState(400)
+
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const ro = new ResizeObserver(entries => setW(entries[0].contentRect.width))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  const showCost    = w >= 200
+  const showCpu     = w >= 240
+  const showMem     = w >= 300
+  const showGpu     = w >= 340
+  const showGpuType = w >= 380
+
+  const cols = ["1fr", showCost && "4rem", showCpu && "3rem", showMem && "5rem", showGpu && "3rem", showGpuType && "4rem"]
+    .filter(Boolean).join(" ")
+
+  const hd = "text-[0.6rem] font-semibold text-muted-foreground uppercase tracking-wide text-right first:text-left"
+  const td = "text-right tabular-nums text-muted-foreground first:text-left first:font-medium first:text-foreground first:truncate"
+
+  return (
+    <div ref={containerRef} className="mt-4 border-t border-border/50 pt-3">
+      <div className="grid pb-1.5 border-b border-border/50" style={{ gridTemplateColumns: cols }}>
+        <div className={hd}>Instance</div>
+        {showCost    && <div className={hd} title="Cost per instance-hour">Cost/hr</div>}
+        {showCpu     && <div className={hd}>CPU</div>}
+        {showMem     && <div className={hd}>Mem</div>}
+        {showGpu     && <div className={hd}>GPU</div>}
+        {showGpuType && <div className={hd}>GPU Type</div>}
       </div>
+      {rows.map((row, i) => (
+        <div key={i} className="grid text-xs py-1.5 border-b border-border/40 last:border-0" style={{ gridTemplateColumns: cols }}>
+          <div className={td}>{row.name}</div>
+          {showCost    && <div className={td}>{row.cost}</div>}
+          {showCpu     && <div className={td}>{row.cpu}</div>}
+          {showMem     && <div className={td}>{row.mem}</div>}
+          {showGpu     && <div className={td}>{row.gpu || "—"}</div>}
+          {showGpuType && <div className={td}>{row.gpuType}</div>}
+        </div>
+      ))}
     </div>
   )
 }
@@ -415,7 +503,6 @@ function FeatureSimple({ title, desc, enabled, onChange, locked, lockReason }: {
         <div>
           <div className="flex items-center gap-1.5">
             <span className="text-sm font-medium leading-none">{title}</span>
-            {locked && lockReason && <Badge variant="outline" className="text-[0.6rem] px-1.5">{lockReason}</Badge>}
           </div>
           <p className="text-xs text-muted-foreground mt-1">{desc}</p>
         </div>
@@ -443,8 +530,8 @@ function FeatureInline({ title, desc, enabled, onChange, children }: {
   )
 }
 
-function FeatureComplex({ title, desc, enabled, onChange, ctaLabel, badgeLabel }: {
-  title: string; desc: string; enabled: boolean; onChange: () => void; ctaLabel: string; badgeLabel: string
+function FeatureComplex({ title, desc, enabled, onChange, ctaLabel }: {
+  title: string; desc: string; enabled: boolean; onChange: () => void; ctaLabel: string
 }) {
   return (
     <div className="p-3 rounded-lg border border-border bg-card">
@@ -453,7 +540,6 @@ function FeatureComplex({ title, desc, enabled, onChange, ctaLabel, badgeLabel }
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">
             <span className="text-sm font-medium leading-none">{title}</span>
-            <Badge variant="outline" className="text-[0.6rem] px-1.5">{badgeLabel}</Badge>
           </div>
           <p className="text-xs text-muted-foreground mt-1">{desc}</p>
           {enabled && (
@@ -602,7 +688,7 @@ function RepeatableFieldGroup({
           <div
             key={f.key}
             className={cn(
-              "text-xs text-muted-foreground font-medium uppercase tracking-wide",
+              "text-xs text-muted-foreground",
               f.className ?? "flex-1"
             )}
           >
@@ -655,6 +741,149 @@ function RepeatableFieldGroup({
   )
 }
 
+// ─── Constraint pill ─────────────────────────────────────────────────────────
+
+function ConstraintPill({ def, value, onSet, onRemove }: {
+  def: ConstraintDef
+  value: string | undefined
+  onSet: (val: string) => void
+  onRemove: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [popupDir, setPopupDir] = useState<"left" | "right">("left")
+  const [draft, setDraft] = useState("")
+  const [draftMulti, setDraftMulti] = useState<string[]>([])
+  const [search, setSearch] = useState("")
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const isActive = value !== undefined
+
+  function openPopup() {
+    if (def.type === "boolean") { if (!isActive) onSet("true"); return }
+    if (wrapRef.current) {
+      const rect = wrapRef.current.getBoundingClientRect()
+      setPopupDir(rect.right + 224 > window.innerWidth ? "right" : "left")
+    }
+    if (def.type === "multiselect") setDraftMulti(value ? value.split(",") : [])
+    else setDraft(value ?? "")
+    setSearch("")
+    setOpen(true)
+  }
+
+  useEffect(() => {
+    if (!open) return
+    function onDown(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener("mousedown", onDown)
+    return () => document.removeEventListener("mousedown", onDown)
+  }, [open])
+
+  function applyNumber() {
+    if (draft.trim()) { onSet(draft.trim()); setOpen(false) }
+  }
+  function applyMulti() {
+    if (draftMulti.length) { onSet(draftMulti.join(",")); setOpen(false) }
+    else { onRemove(); setOpen(false) }
+  }
+
+  function displayValue() {
+    if (!value || value === "true") return ""
+    if (def.type === "number") return def.unit ? `${value} ${def.unit}` : value
+    if (def.type === "select") return value
+    const parts = value.split(",")
+    return parts.length <= 2 ? parts.join(", ") : `${parts[0]} +${parts.length - 1}`
+  }
+
+  const filtered = (def.options ?? []).filter(o => !search || o.toLowerCase().includes(search.toLowerCase()))
+  const dv = displayValue()
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <button
+        onClick={openPopup}
+        className={cn(
+          "inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border font-medium transition-colors",
+          isActive
+            ? "bg-primary/10 text-primary border-primary/20"
+            : "border-dashed border-border text-muted-foreground hover:text-foreground hover:border-border/80"
+        )}
+      >
+        <span>{def.label}{dv ? `: ${dv}` : ""}</span>
+        {isActive && (
+          <span role="button" onClick={e => { e.stopPropagation(); onRemove() }} className="ml-0.5 hover:text-destructive transition-colors">
+            <X size={10} />
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div className={cn("absolute top-full mt-1.5 z-50 bg-popover border border-border rounded-lg shadow-lg overflow-hidden", popupDir === "right" ? "right-0" : "left-0")} style={{ minWidth: "13rem" }}>
+          {def.type === "number" && (
+            <div className="p-3 space-y-2">
+              <div className="text-xs font-medium text-foreground">{def.label}</div>
+              <div className="flex items-center gap-1.5">
+                <Input autoFocus type="number" value={draft} onChange={e => setDraft(e.target.value)}
+                  placeholder={def.placeholder} className="h-7 text-xs flex-1"
+                  onKeyDown={e => e.key === "Enter" && applyNumber()} />
+                {def.unit && <span className="text-xs text-muted-foreground shrink-0">{def.unit}</span>}
+              </div>
+              <Button size="sm" className="w-full h-7 text-xs" onClick={applyNumber}>Apply</Button>
+            </div>
+          )}
+          {def.type === "select" && (
+            <div className="p-1">
+              <div className="px-2 py-1.5 text-[0.65rem] font-semibold text-muted-foreground uppercase tracking-wide">{def.label}</div>
+              {(def.options ?? []).map(opt => (
+                <button key={opt} onClick={() => { onSet(opt); setOpen(false) }}
+                  className={cn("w-full text-left px-2 py-1.5 text-xs rounded-md flex items-center gap-2 transition-colors",
+                    value === opt ? "bg-primary/10 text-primary" : "hover:bg-muted")}>
+                  <div className={cn("h-3.5 w-3.5 rounded-full border flex items-center justify-center shrink-0",
+                    value === opt ? "bg-primary border-primary" : "border-input")}>
+                    {value === opt && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                  </div>
+                  {opt}
+                </button>
+              ))}
+            </div>
+          )}
+          {def.type === "multiselect" && (
+            <>
+              <div className="p-2 border-b border-border">
+                <div className="flex items-center gap-1.5 px-2 h-7 rounded-md border border-input">
+                  <Search size={11} className="text-muted-foreground shrink-0" />
+                  <input autoFocus value={search} onChange={e => setSearch(e.target.value)}
+                    placeholder="Search..." className="flex-1 text-xs bg-transparent outline-none" />
+                </div>
+              </div>
+              <div className="max-h-48 overflow-y-auto">
+                {filtered.map(opt => {
+                  const checked = draftMulti.includes(opt)
+                  return (
+                    <button key={opt} onClick={() => setDraftMulti(p => checked ? p.filter(x => x !== opt) : [...p, opt])}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted transition-colors">
+                      <div className={cn("h-3.5 w-3.5 rounded border flex items-center justify-center shrink-0",
+                        checked ? "bg-primary border-primary" : "border-input")}>
+                        {checked && <Check size={9} className="text-primary-foreground" />}
+                      </div>
+                      {opt}
+                    </button>
+                  )
+                })}
+                {filtered.length === 0 && <div className="px-3 py-3 text-xs text-muted-foreground text-center">No results</div>}
+              </div>
+              <div className="p-2 border-t border-border">
+                <Button size="sm" className="w-full h-7 text-xs" onClick={applyMulti}>
+                  Apply{draftMulti.length > 0 ? ` (${draftMulti.length})` : ""}
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Step 1: Template setup ────────────────────────────────────────────────────
 
 function Step1Content({ form, onChange }: { form: TemplateForm; onChange: (u: Partial<TemplateForm>) => void }) {
@@ -677,15 +906,17 @@ function Step1Content({ form, onChange }: { form: TemplateForm; onChange: (u: Pa
         </FormSection>
 
         <FormSection title="Linked node configuration">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <SplitSelect
               label="Configuration"
               value={form.nodeConfig}
               onChange={v => onChange({ nodeConfig: v })}
               options={["Default", "prod-cpu-optimized", "prod-memory-optimized", "gpu-a100-large"]}
             />
-            <Button variant="ghost" size="sm" className="h-9 text-xs text-primary px-2">View configuration ↗</Button>
+            <span className="text-xs text-muted-foreground/40 shrink-0">·</span>
+            <button className="text-xs text-primary hover:underline whitespace-nowrap shrink-0">Create new node configuration →</button>
           </div>
+          <button className="text-xs text-primary hover:underline mt-1.5">View configuration ↗</button>
         </FormSection>
 
         <FormSection title="Taints">
@@ -737,12 +968,14 @@ function Step1Content({ form, onChange }: { form: TemplateForm; onChange: (u: Pa
         </FormSection>
       </div>
 
-      <RightRail title="YAML preview" pill="this step">
-        <p className="text-xs text-muted-foreground mb-3">How pods will bind to nodes created by this template.</p>
-        <YamlPreview form={form} />
-        <div className="mt-4 p-3 bg-muted/40 rounded-md border border-border/50">
-          <p className="text-xs font-medium">💡 Copy this into your Deployment</p>
-          <p className="text-xs text-muted-foreground mt-1">Apply the nodeSelector + toleration to pods you want on this template's nodes.</p>
+      <RightRail title="YAML preview">
+        <div className="space-y-4">
+          <p className="text-xs text-muted-foreground">How pods will bind to nodes created by this template.</p>
+          <YamlPreview form={form} />
+          <div className="p-3 rounded-md border border-primary/20 bg-primary/[0.04]">
+            <p className="text-xs font-medium">💡 Copy this into your Deployment</p>
+            <p className="text-xs text-muted-foreground mt-1">Apply the nodeSelector + toleration to pods you want on this template's nodes.</p>
+          </div>
         </div>
       </RightRail>
     </>
@@ -752,18 +985,17 @@ function Step1Content({ form, onChange }: { form: TemplateForm; onChange: (u: Pa
 // ─── Step 2: Constraints ───────────────────────────────────────────────────────
 
 function Step2Content({ form, onChange }: { form: TemplateForm; onChange: (u: Partial<TemplateForm>) => void }) {
-  const [showCriteriaMenu, setShowCriteriaMenu] = useState(false)
   const instances = computeApplicableInstances(form)
   const tightness = computeTightnessPercent(form)
   const isTight = instances <= 5
-  const addableCriteria = ADDABLE_CRITERIA.filter(c => !form.criteria.includes(c))
 
-  function removeCriterion(c: string) {
-    onChange({ criteria: form.criteria.filter(x => x !== c) })
+  function setCriterion(key: string, val: string) {
+    onChange({ criteria: { ...form.criteria, [key]: val } })
   }
-  function addCriterion(c: string) {
-    onChange({ criteria: [...form.criteria, c] })
-    setShowCriteriaMenu(false)
+  function removeCriterion(key: string) {
+    const next = { ...form.criteria }
+    delete next[key]
+    onChange({ criteria: next })
   }
 
   return (
@@ -771,10 +1003,25 @@ function Step2Content({ form, onChange }: { form: TemplateForm; onChange: (u: Pa
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
         <div>
           <h2 className="text-lg font-bold">Node pool constraints</h2>
-          <p className="text-sm text-muted-foreground mt-0.5">Filter which instances are eligible. <strong>More constraints = tighter pool = higher risk.</strong></p>
+          <p className="text-sm text-muted-foreground mt-0.5">Filter which instances are eligible. More constraints = tighter pool = higher risk.</p>
         </div>
 
         <div className="grid grid-cols-3 gap-3">
+          <FormSection title="Resource offering">
+            <div className="space-y-2">
+              <CheckField checked={form.offeringOnDemand} onChange={() => onChange({ offeringOnDemand: !form.offeringOnDemand })} label="On-demand" />
+              <CheckField
+                checked={form.offeringSpot}
+                onChange={() => onChange({ offeringSpot: !form.offeringSpot })}
+                label="Spot"
+                suffix={form.offeringSpot ? (
+                  <span className="inline-flex items-center gap-1 text-[0.6rem] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-medium leading-none">
+                    ⚡ 4 features · next step
+                  </span>
+                ) : undefined}
+              />
+            </div>
+          </FormSection>
           <FormSection title="Architecture">
             <div className="space-y-2">
               <CheckField checked={form.archX86} onChange={() => onChange({ archX86: !form.archX86 })} label="x86_64" />
@@ -787,39 +1034,19 @@ function Step2Content({ form, onChange }: { form: TemplateForm; onChange: (u: Pa
               <CheckField checked={form.osWindows} onChange={() => onChange({ osWindows: !form.osWindows })} label="Windows" />
             </div>
           </FormSection>
-          <FormSection title="Resource offering">
-            <div className="space-y-2">
-              <CheckField checked={form.offeringOnDemand} onChange={() => onChange({ offeringOnDemand: !form.offeringOnDemand })} label="On-demand" />
-              <CheckField checked={form.offeringSpot} onChange={() => onChange({ offeringSpot: !form.offeringSpot })} label="Spot" />
-            </div>
-          </FormSection>
         </div>
 
         <FormSection title="Instance criteria">
           <div className="flex flex-wrap gap-2">
-            {form.criteria.map(c => (
-              <span key={c} className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-medium">
-                {c}
-                <button onClick={() => removeCriterion(c)} className="ml-0.5 hover:text-destructive transition-colors"><X size={10} /></button>
-              </span>
+            {CONSTRAINT_DEFS.map(def => (
+              <ConstraintPill
+                key={def.key}
+                def={def}
+                value={form.criteria[def.key]}
+                onSet={val => setCriterion(def.key, val)}
+                onRemove={() => removeCriterion(def.key)}
+              />
             ))}
-            <div className="relative">
-              <DropdownMenu open={showCriteriaMenu} onOpenChange={setShowCriteriaMenu}>
-                <DropdownMenuTrigger asChild>
-                  <button className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border border-dashed border-border text-muted-foreground hover:text-foreground hover:border-border/80 transition-colors">
-                    <Plus size={10} /> Add criterion
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-52">
-                  {addableCriteria.length === 0
-                    ? <DropdownMenuItem disabled className="text-xs text-muted-foreground">All criteria added</DropdownMenuItem>
-                    : addableCriteria.map(c => (
-                        <DropdownMenuItem key={c} className="text-xs" onClick={() => addCriterion(c)}>{c}</DropdownMenuItem>
-                      ))
-                  }
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
           </div>
         </FormSection>
 
@@ -842,46 +1069,23 @@ function Step2Content({ form, onChange }: { form: TemplateForm; onChange: (u: Pa
         </FormSection>
       </div>
 
-      <RightRail title="Applicable instances" pill="live">
-        <p className="text-xs text-muted-foreground mb-3">Updates as you change constraints.</p>
-        <div className="flex items-baseline gap-2 mb-1">
+      <RightRail title="Available instances">
+        <p className="text-xs text-muted-foreground mb-3">based on the constraints added and current market availability</p>
+        <div className="flex items-baseline gap-2 mb-4">
           <span className="text-3xl font-bold tabular-nums">{instances}</span>
-          <span className="text-sm text-muted-foreground">instance{instances !== 1 ? "s" : ""} match</span>
         </div>
-        <p className="text-[0.65rem] text-muted-foreground mb-3">based on current market availability</p>
 
         <TightnessMeter percent={tightness} />
 
         {isTight && (
           <div className="mt-3 p-2.5 bg-amber-500/10 rounded-md border border-dashed border-amber-500/30">
             <p className="text-xs text-amber-700 dark:text-amber-400">
-              <strong>Heads up:</strong> only {instances} instance{instances !== 1 ? "s" : ""} match{instances === 1 ? "es" : ""}. If unavailable, Autoscaler can't spin up a node. Relax constraints.
+              <strong>Heads up:</strong> only {instances} instance{instances !== 1 ? "s" : ""}. If unavailable, Autoscaler can't spin up a node. Relax constraints.
             </p>
           </div>
         )}
 
-        <div className="mt-4 border-t border-border/50 pt-3">
-          <div className="grid grid-cols-[2fr_1fr_1fr] gap-1 text-[0.6rem] font-semibold text-muted-foreground uppercase tracking-wide px-1 mb-1">
-            <div>Instance</div><div>CPU</div><div>Cost/hr</div>
-          </div>
-          {instances > 0 && (
-            <div className="grid grid-cols-[2fr_1fr_1fr] gap-1 text-xs px-1 py-2 border-t border-border/50">
-              <div className="font-medium">g5.24xlarge</div><div>96</div><div className="text-muted-foreground">$0.106</div>
-            </div>
-          )}
-          {instances > 1 && (
-            <div className="grid grid-cols-[2fr_1fr_1fr] gap-1 text-xs px-1 py-2 border-t border-border/50">
-              <div className="font-medium">m5.4xlarge</div><div>16</div><div className="text-muted-foreground">$0.048</div>
-            </div>
-          )}
-          {instances > 2 && (
-            <div className="px-1 py-2 border-t border-border/50 text-xs text-primary cursor-pointer hover:underline">
-              View all {instances} instances ↓
-            </div>
-          )}
-        </div>
-
-        <p className="text-[0.65rem] text-muted-foreground mt-4 italic">Remove a constraint to see more matches update in real time.</p>
+        <InstanceTable rows={MOCK_INSTANCES.slice(0, instances)} />
       </RightRail>
     </>
   )
@@ -962,7 +1166,6 @@ function Step3Content({ form, onChange }: { form: TemplateForm; onChange: (u: Pa
               enabled={form.gpuSharing}
               onChange={() => onChange({ gpuSharing: !form.gpuSharing })}
               ctaLabel="Configure sharing"
-              badgeLabel="sub-wizard"
             />
             <FeatureComplex
               title="Standby pool"
@@ -970,7 +1173,6 @@ function Step3Content({ form, onChange }: { form: TemplateForm; onChange: (u: Pa
               enabled={form.standbyPool}
               onChange={() => onChange({ standbyPool: !form.standbyPool })}
               ctaLabel="Set up pool"
-              badgeLabel="sub-wizard"
             />
           </div>
         </div>
@@ -984,7 +1186,6 @@ function Step3Content({ form, onChange }: { form: TemplateForm; onChange: (u: Pa
               enabled={form.liveMigration}
               onChange={() => onChange({ liveMigration: !form.liveMigration })}
               ctaLabel="Open migration setup"
-              badgeLabel="opens in new area ↗"
             />
             <FeatureComplex
               title="Storage autoscaler"
@@ -992,7 +1193,6 @@ function Step3Content({ form, onChange }: { form: TemplateForm; onChange: (u: Pa
               enabled={form.storageAutoscaler}
               onChange={() => onChange({ storageAutoscaler: !form.storageAutoscaler })}
               ctaLabel="Configure policies"
-              badgeLabel="opens in new area ↗"
             />
             <FeatureSimple
               title="Edge locations"
@@ -1030,7 +1230,11 @@ function Step3Content({ form, onChange }: { form: TemplateForm; onChange: (u: Pa
               {form.osWindows && <Badge variant="outline" className="text-[0.6rem] px-1.5 font-normal">Windows</Badge>}
               {form.offeringSpot && <Badge variant="outline" className="text-[0.6rem] px-1.5 font-normal bg-primary/10 text-primary border-primary/20">Spot</Badge>}
               {form.offeringOnDemand && <Badge variant="outline" className="text-[0.6rem] px-1.5 font-normal">On-demand</Badge>}
-              {form.criteria.map(c => <Badge key={c} variant="outline" className="text-[0.6rem] px-1.5 font-normal">{c}</Badge>)}
+              {Object.entries(form.criteria).map(([k, v]) => {
+                const def = CONSTRAINT_DEFS.find(d => d.key === k)
+                const label = def ? `${def.label}${v !== "true" ? `: ${v}` : ""}` : k
+                return <Badge key={k} variant="outline" className="text-[0.6rem] px-1.5 font-normal">{label}</Badge>
+              })}
             </div>
             {computeApplicableInstances(form) <= 5 && (
               <p className="text-[0.65rem] text-destructive mt-1.5">⚠ {computeApplicableInstances(form)} applicable instance{computeApplicableInstances(form) !== 1 ? "s" : ""}</p>
@@ -1133,7 +1337,7 @@ function ScenarioPicker({ onSelect, onBlank, onCancel }: {
                 className={cn(
                   "text-left p-4 rounded-lg border-2 flex items-start gap-3 transition-colors",
                   selected === p.id
-                    ? "border-primary bg-primary/5"
+                    ? "border-primary/50 bg-primary/[0.03]"
                     : "border-border hover:border-border/70 bg-card"
                 )}
               >
@@ -1166,13 +1370,13 @@ function ScenarioPicker({ onSelect, onBlank, onCancel }: {
             className={cn(
               "w-full text-left p-5 rounded-lg border-2 flex items-center gap-5 transition-colors",
               selected === "blank"
-                ? "border-primary bg-primary/5"
+                ? "border-primary/50 bg-primary/[0.03]"
                 : "border-dashed border-border bg-muted/20 hover:border-border/80"
             )}
           >
             <div className={cn(
               "w-16 h-16 rounded-lg border-2 border-dashed flex items-center justify-center shrink-0 transition-colors",
-              selected === "blank" ? "border-primary bg-primary/10" : "border-border bg-card"
+              selected === "blank" ? "border-primary/50 bg-primary/5" : "border-border bg-card"
             )}>
               {selected === "blank"
                 ? <Check size={24} className="text-primary" />
@@ -1238,48 +1442,53 @@ function EditTemplateView({ template, form, onSave, onCancel }: {
     editForm.gpuSharing && "GPU time sharing",
   ].filter(Boolean) as string[]
 
+  const isTight = instances <= 5
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center h-14 border-b border-border px-6 gap-4 shrink-0 bg-surface-paper">
-        <div className="flex items-center gap-2 text-sm">
-          <button onClick={onCancel} className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors">
-            <ArrowLeft size={14} /><span>Templates</span>
+      {/* Header — matches WizardHeader */}
+      <div className={cn(SURFACE_HEADER_HEIGHT, "px-6 pt-3 pb-3 border-b border-border shrink-0 flex flex-col justify-center bg-surface-paper")}>
+        <div className="mb-1.5">
+          <button onClick={onCancel} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors">
+            <ArrowLeft size={11} className="shrink-0" />
+            <span>Configurations</span>
           </button>
-          <ChevronRight size={14} className="text-muted-foreground/50" />
-          <span className="font-semibold">{template.name}</span>
-          <Badge variant="outline" className="text-[0.6rem] px-1.5 ml-1">editing</Badge>
         </div>
-        <div className="flex-1" />
-        <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={onCancel}>Cancel</Button>
-        <Button size="sm" className="h-8 text-xs" onClick={onSave}>Save changes</Button>
+        <h1 className="text-xl font-semibold tracking-tight text-foreground">{template.name}</h1>
       </div>
 
       {/* 3-panel layout */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left: summary nav cards */}
-        <div className="w-72 border-r border-border bg-muted/20 overflow-y-auto p-4 shrink-0">
+        {/* Left: section nav cards */}
+        <div className="w-64 border-r border-border bg-muted/20 overflow-y-auto p-4 shrink-0">
           <div className="text-[0.65rem] font-semibold text-muted-foreground uppercase tracking-wider mb-3">Template sections</div>
           {(["setup", "constraints", "features"] as EditSection[]).map(section => {
             const isActive = activeSection === section
+            const criteriaCount = Object.keys(editForm.criteria).length
             const info = {
               setup: {
                 num: 1, title: "Template setup",
                 status: "complete",
-                lines: [`name: ${editForm.name}`, editForm.taintEnabled ? "taint: enabled" : "no taint", "labels: default nodeSelector"],
+                lines: [`name: ${editForm.name || "—"}`, editForm.taintEnabled ? "taint: enabled" : "no taint", "labels: default nodeSelector"],
               },
               constraints: {
                 num: 2, title: "Constraints",
-                status: editForm.criteria.length > 0 ? `${editForm.criteria.length} criteria` : "default",
+                status: criteriaCount > 0 ? `${criteriaCount} criteria` : "default",
                 lines: [
                   [editForm.archX86 && "x86_64", editForm.archArm && "ARM64"].filter(Boolean).join(" · "),
                   [editForm.osLinux && "Linux", editForm.osWindows && "Windows"].filter(Boolean).join(" · "),
                   editForm.offeringSpot && !editForm.offeringOnDemand ? "Spot only"
                     : !editForm.offeringSpot && editForm.offeringOnDemand ? "On-demand only"
                     : "Spot + On-demand",
-                  ...(editForm.criteria.length > 0 ? [editForm.criteria.slice(0, 2).join(" · ")] : []),
+                  ...(criteriaCount > 0
+                    ? [Object.keys(editForm.criteria).slice(0, 2).map(k => {
+                        const def = CONSTRAINT_DEFS.find(d => d.key === k)
+                        const v = editForm.criteria[k]
+                        return def ? `${def.label}${v !== "true" ? `: ${v}` : ""}` : k
+                      }).join(" · ")]
+                    : []),
                 ],
-                warn: instances <= 5 ? `only ${instances} applicable instance${instances !== 1 ? "s" : ""}` : undefined,
+                warn: instances <= 5 ? `only ${instances} instance${instances !== 1 ? "s" : ""}` : undefined,
               },
               features: {
                 num: 3, title: "Features",
@@ -1289,16 +1498,12 @@ function EditTemplateView({ template, form, onSave, onCancel }: {
             }[section]
 
             return (
-              <button
-                key={section}
-                onClick={() => setActiveSection(section)}
-                className={cn(
-                  "w-full text-left p-3 rounded-lg border mb-2.5 transition-colors",
-                  isActive ? "border-primary bg-card shadow-sm" : "border-border bg-background hover:bg-card"
-                )}
-              >
+              <button key={section} onClick={() => setActiveSection(section)}
+                className={cn("w-full text-left p-3 rounded-lg border mb-2.5 transition-colors",
+                  isActive ? "border-primary bg-card shadow-sm" : "border-border bg-background hover:bg-card")}>
                 <div className="flex items-center gap-2 mb-2">
-                  <div className={cn("w-5 h-5 rounded flex items-center justify-center text-[0.65rem] font-bold shrink-0", isActive ? "bg-primary text-white" : "bg-foreground text-background")}>
+                  <div className={cn("w-5 h-5 rounded flex items-center justify-center text-[0.65rem] font-bold shrink-0",
+                    isActive ? "bg-primary text-white" : "bg-foreground text-background")}>
                     {info.num}
                   </div>
                   <span className="text-sm font-semibold flex-1">{info.title}</span>
@@ -1317,38 +1522,92 @@ function EditTemplateView({ template, form, onSave, onCancel }: {
           })}
         </div>
 
-        {/* Center: active section content */}
+        {/* Center: active section */}
         <div className="flex-1 overflow-y-auto p-6">
           {activeSection === "setup" && (
             <div className="max-w-xl space-y-4">
               <div>
                 <h2 className="text-lg font-bold">Template setup</h2>
-                <p className="text-sm text-muted-foreground mt-0.5">Name and targeting configuration.</p>
+                <p className="text-sm text-muted-foreground mt-0.5">Name, identity, and how workloads reach these nodes.</p>
               </div>
               <FormSection title="Template name">
-                <Input value={editForm.name} onChange={e => onChange({ name: e.target.value })} className="max-w-sm h-8 text-sm" />
+                <Input value={editForm.name} onChange={e => onChange({ name: e.target.value })} className="max-w-sm h-9 text-sm" />
+                <p className="text-[0.7rem] text-amber-600 dark:text-amber-400 mt-1.5">⚠ Cannot be changed after saving</p>
               </FormSection>
               <FormSection title="Linked node configuration">
-                <select value={editForm.nodeConfig} onChange={e => onChange({ nodeConfig: e.target.value })} className="h-8 px-2 text-sm border border-input rounded-md bg-background text-foreground w-44">
-                  <option>Default</option><option>prod-cpu-optimized</option><option>prod-memory-optimized</option>
-                </select>
+                <SplitSelect label="Configuration" value={editForm.nodeConfig}
+                  onChange={v => onChange({ nodeConfig: v })}
+                  options={["Default", "prod-cpu-optimized", "prod-memory-optimized", "gpu-a100-large"]} />
+                <div className="flex items-center gap-2 mt-1.5">
+                  <button className="text-xs text-primary hover:underline">View configuration ↗</button>
+                  <span className="text-xs text-muted-foreground/40 shrink-0">·</span>
+                  <button className="text-xs text-primary hover:underline whitespace-nowrap shrink-0">Create new node configuration →</button>
+                </div>
               </FormSection>
               <FormSection title="Taints">
+                <p className="text-xs text-muted-foreground mb-3">Repel pods that don't tolerate this key.</p>
                 <CheckField checked={editForm.taintEnabled} onChange={() => onChange({ taintEnabled: !editForm.taintEnabled })} label="Taint nodes" />
+                {editForm.taintEnabled && (
+                  <div className="mt-3">
+                    <RepeatableFieldGroup
+                      fields={[
+                        { key: "key", label: "Key" },
+                        { key: "value", label: "Value" },
+                        { key: "effect", label: "Effect", type: "select", options: ["NoSchedule", "NoExecute", "PreferNoSchedule"], className: "w-44 shrink-0" },
+                      ]}
+                      rows={editForm.taints}
+                      onChange={(i, k, v) => onChange({ taints: editForm.taints.map((t, j) => j === i ? { ...t, [k]: v } : t) })}
+                      onRemove={i => onChange({ taints: editForm.taints.filter((_, j) => j !== i) })}
+                      onAdd={() => onChange({ taints: [...editForm.taints, { key: "", value: "", effect: "NoSchedule" }] })}
+                      addLabel="Add taint"
+                    />
+                  </div>
+                )}
               </FormSection>
-              <div className="pt-4 border-t border-dashed border-border flex justify-end">
-                <button className="text-sm text-primary font-medium">Next: Constraints →</button>
-              </div>
+              <FormSection title="Labels">
+                <p className="text-xs text-muted-foreground mb-3">Default nodeSelector uses the template name. Override with custom labels if needed.</p>
+                <CheckField checked={editForm.customLabels} onChange={() => onChange({ customLabels: !editForm.customLabels })} label="Use custom labels" />
+                {!editForm.customLabels && (
+                  <div className="mt-3">
+                    <Badge variant="outline" className="text-xs rounded-full font-normal px-2.5 py-0.5">
+                      scheduling.cast.ai/node-template: {editForm.name || "—"}
+                    </Badge>
+                  </div>
+                )}
+                {editForm.customLabels && (
+                  <div className="mt-3">
+                    <RepeatableFieldGroup
+                      fields={[{ key: "key", label: "Key" }, { key: "value", label: "Value" }]}
+                      rows={editForm.labels}
+                      onChange={(i, k, v) => onChange({ labels: editForm.labels.map((l, j) => j === i ? { ...l, [k]: v } : l) })}
+                      onRemove={i => onChange({ labels: editForm.labels.filter((_, j) => j !== i) })}
+                      onAdd={() => onChange({ labels: [...editForm.labels, { key: "", value: "" }] })}
+                      addLabel="Add label"
+                    />
+                  </div>
+                )}
+              </FormSection>
             </div>
           )}
 
           {activeSection === "constraints" && (
             <div className="max-w-xl space-y-4">
               <div>
-                <h2 className="text-lg font-bold">Constraints</h2>
+                <h2 className="text-lg font-bold">Node pool constraints</h2>
                 <p className="text-sm text-muted-foreground mt-0.5">Filter which instances are eligible. More constraints = tighter pool = higher risk.</p>
               </div>
               <div className="grid grid-cols-3 gap-3">
+                <FormSection title="Resource offering">
+                  <div className="space-y-2">
+                    <CheckField checked={editForm.offeringOnDemand} onChange={() => onChange({ offeringOnDemand: !editForm.offeringOnDemand })} label="On-demand" />
+                    <CheckField checked={editForm.offeringSpot} onChange={() => onChange({ offeringSpot: !editForm.offeringSpot })} label="Spot"
+                      suffix={editForm.offeringSpot ? (
+                        <span className="inline-flex items-center gap-1 text-[0.6rem] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-medium leading-none">
+                          ⚡ 4 features · next step
+                        </span>
+                      ) : undefined} />
+                  </div>
+                </FormSection>
                 <FormSection title="Architecture">
                   <div className="space-y-2">
                     <CheckField checked={editForm.archX86} onChange={() => onChange({ archX86: !editForm.archX86 })} label="x86_64" />
@@ -1361,102 +1620,122 @@ function EditTemplateView({ template, form, onSave, onCancel }: {
                     <CheckField checked={editForm.osWindows} onChange={() => onChange({ osWindows: !editForm.osWindows })} label="Windows" />
                   </div>
                 </FormSection>
-                <FormSection title="Offering">
-                  <div className="space-y-2">
-                    <CheckField checked={editForm.offeringOnDemand} onChange={() => onChange({ offeringOnDemand: !editForm.offeringOnDemand })} label="On-demand" />
-                    <CheckField checked={editForm.offeringSpot} onChange={() => onChange({ offeringSpot: !editForm.offeringSpot })} label="Spot" />
-                  </div>
-                </FormSection>
               </div>
               <FormSection title="Instance criteria">
                 <div className="flex flex-wrap gap-2">
-                  {editForm.criteria.map(c => (
-                    <span key={c} className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-medium">
-                      {c}
-                      <button onClick={() => onChange({ criteria: editForm.criteria.filter(x => x !== c) })} className="hover:text-destructive"><X size={10} /></button>
-                    </span>
+                  {CONSTRAINT_DEFS.map(def => (
+                    <ConstraintPill key={def.key} def={def} value={editForm.criteria[def.key]}
+                      onSet={val => onChange({ criteria: { ...editForm.criteria, [def.key]: val } })}
+                      onRemove={() => { const next = { ...editForm.criteria }; delete next[def.key]; onChange({ criteria: next }) }} />
                   ))}
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <button className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border border-dashed border-border text-muted-foreground hover:text-foreground">
-                        <Plus size={10} /> Add criterion
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start" className="w-52">
-                      {ADDABLE_CRITERIA.filter(c => !editForm.criteria.includes(c)).map(c => (
-                        <DropdownMenuItem key={c} className="text-xs" onClick={() => onChange({ criteria: [...editForm.criteria, c] })}>{c}</DropdownMenuItem>
-                      ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
                 </div>
               </FormSection>
-              {instances <= 5 && (
-                <div className="p-3 bg-amber-500/10 rounded-md border border-dashed border-amber-500/30 flex items-center gap-3">
-                  <span className="text-lg">⚠</span>
-                  <div>
-                    <p className="text-xs font-medium">{instances} applicable instance{instances !== 1 ? "s" : ""} — if unavailable, Autoscaler can't spin up a node.</p>
-                    <button className="text-xs text-primary">View matches ↓</button>
-                  </div>
-                </div>
-              )}
-              <div className="pt-4 border-t border-dashed border-border flex justify-end">
-                <button className="text-sm text-primary font-medium" onClick={() => setActiveSection("features")}>Next: Features →</button>
-              </div>
             </div>
           )}
 
           {activeSection === "features" && (
             <div className="max-w-xl space-y-4">
               <div>
-                <h2 className="text-lg font-bold">Features</h2>
-                <p className="text-sm text-muted-foreground mt-0.5">Toggle features on or off for this template.</p>
+                <h2 className="text-lg font-bold">Node-level features</h2>
+                <p className="text-sm text-muted-foreground mt-0.5">Toggle features on. Some have inline config; others open a dedicated setup flow.</p>
               </div>
-              <div className="space-y-2">
-                <FeatureInline title="Spot fallback" desc="Fall back to on-demand when spot is unavailable." enabled={editForm.spotFallback} onChange={() => onChange({ spotFallback: !editForm.spotFallback })}>
-                  <div className="flex items-center gap-2 text-xs">
-                    <span className="text-muted-foreground">fallback after</span>
-                    <select value={editForm.spotFallbackDelay} onChange={e => onChange({ spotFallbackDelay: e.target.value })} className="h-7 px-2 text-xs border border-input rounded bg-background text-foreground">
-                      <option>2 min</option><option>5 min</option><option>10 min</option>
-                    </select>
-                  </div>
-                </FeatureInline>
-                <FeatureSimple title="Interruption prediction" desc="CAST ML predicts spot interruptions ahead of time." enabled={editForm.interruptionPrediction} onChange={() => onChange({ interruptionPrediction: !editForm.interruptionPrediction })} />
-                <FeatureSimple title="Diversify spot" desc="Spread across instance families." enabled={editForm.diversifySpot} onChange={() => onChange({ diversifySpot: !editForm.diversifySpot })} />
+              <div>
+                <div className="text-[0.65rem] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Spot reliability</div>
+                <div className="space-y-2">
+                  <FeatureInline title="Spot fallback" desc="Fall back to on-demand when spot is unavailable." enabled={editForm.spotFallback} onChange={() => onChange({ spotFallback: !editForm.spotFallback })}>
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className="text-muted-foreground">fallback after</span>
+                      <select value={editForm.spotFallbackDelay} onChange={e => onChange({ spotFallbackDelay: e.target.value })} className="h-7 px-2 text-xs border border-input rounded bg-background text-foreground">
+                        <option>2 min</option><option>5 min</option><option>10 min</option><option>30 min</option>
+                      </select>
+                    </div>
+                  </FeatureInline>
+                  <FeatureSimple title="Interruption prediction" desc="CAST ML predicts spot interruptions ahead of time." enabled={editForm.interruptionPrediction} onChange={() => onChange({ interruptionPrediction: !editForm.interruptionPrediction })} />
+                  <FeatureSimple title="Diversify spot" desc="Spread across instance families to reduce blast radius." enabled={editForm.diversifySpot} onChange={() => onChange({ diversifySpot: !editForm.diversifySpot })} />
+                  <FeatureSimple title="Reliable spot" desc="Prefer spot instances with longer historical lifetime." enabled={editForm.reliableSpot} onChange={() => onChange({ reliableSpot: !editForm.reliableSpot })} />
+                </div>
+              </div>
+              <div>
+                <div className="text-[0.65rem] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Hardware & capacity</div>
+                <div className="space-y-2">
+                  <FeatureComplex title="GPU time sharing" desc="Share GPUs across multiple pods. Requires device plugin config." enabled={editForm.gpuSharing} onChange={() => onChange({ gpuSharing: !editForm.gpuSharing })} ctaLabel="Configure sharing" />
+                  <FeatureComplex title="Standby pool" desc="Keep warm capacity ready for traffic spikes." enabled={editForm.standbyPool} onChange={() => onChange({ standbyPool: !editForm.standbyPool })} ctaLabel="Set up pool" />
+                  <FeatureSimple title="Storage autoscaler" desc="Auto-resize attached volumes based on usage." enabled={editForm.storageAutoscaler} onChange={() => onChange({ storageAutoscaler: !editForm.storageAutoscaler })} />
+                  <FeatureSimple title="Live migration" desc="Migrate running containers between nodes with no restart." enabled={editForm.liveMigration} onChange={() => onChange({ liveMigration: !editForm.liveMigration })} />
+                </div>
               </div>
             </div>
           )}
         </div>
 
-        {/* Right: contextual rail */}
-        <RightRail title={activeSection === "setup" ? "YAML preview" : activeSection === "features" ? "Template summary" : "Applicable instances"} pill={activeSection === "constraints" ? "live" : undefined}>
-          {activeSection === "constraints" && (
-            <>
-              <p className="text-xs text-muted-foreground mb-3">Updates as you change constraints.</p>
-              <div className="flex items-baseline gap-2 mb-1">
-                <span className="text-3xl font-bold tabular-nums">{instances}</span>
-                <span className="text-sm text-muted-foreground">instance{instances !== 1 ? "s" : ""} match</span>
+        {/* Right: contextual rail — mirrors create flow per section */}
+        {activeSection === "setup" && (
+          <RightRail title="YAML preview">
+            <div className="space-y-4">
+              <p className="text-xs text-muted-foreground">How pods will bind to nodes created by this template.</p>
+              <YamlPreview form={editForm} />
+              <div className="p-3 rounded-md border border-primary/20 bg-primary/[0.04]">
+                <p className="text-xs font-medium">💡 Copy this into your Deployment</p>
+                <p className="text-xs text-muted-foreground mt-1">Apply the nodeSelector + toleration to pods you want on this template's nodes.</p>
               </div>
-              <TightnessMeter percent={tightness} />
-              <div className="mt-4 border-t border-border/50 pt-3 space-y-1.5 text-xs">
-                <div className="grid grid-cols-[2fr_1fr_1fr] gap-1 text-[0.6rem] font-semibold text-muted-foreground uppercase tracking-wide px-1">
-                  <div>Instance</div><div>CPU</div><div>Cost/hr</div>
-                </div>
-                <div className="grid grid-cols-[2fr_1fr_1fr] gap-1 px-1 py-1.5 border-t border-border/50">
-                  <div className="font-medium">g5.24xlarge</div><div>96</div><div className="text-muted-foreground">$0.106</div>
-                </div>
-              </div>
-            </>
-          )}
-          {activeSection === "setup" && <YamlPreview form={editForm} />}
-          {activeSection === "features" && (
-            <div className="space-y-2 text-xs">
-              <div className="text-muted-foreground font-medium">Enabled features ({enabledFeatures.length})</div>
-              {enabledFeatures.map(f => <div key={f} className="text-muted-foreground">✓ {f}</div>)}
-              {enabledFeatures.length === 0 && <div className="text-muted-foreground italic">None enabled</div>}
             </div>
-          )}
-          <p className="text-[0.65rem] text-muted-foreground mt-6 italic">Right rail updates based on the active section.</p>
-        </RightRail>
+          </RightRail>
+        )}
+        {activeSection === "constraints" && (
+          <RightRail title="Available instances">
+            <p className="text-xs text-muted-foreground mb-3">based on the constraints added and current market availability</p>
+            <div className="flex items-baseline gap-2 mb-4">
+              <span className="text-3xl font-bold tabular-nums">{instances}</span>
+            </div>
+            <TightnessMeter percent={tightness} />
+            {isTight && (
+              <div className="mt-3 p-2.5 bg-amber-500/10 rounded-md border border-dashed border-amber-500/30">
+                <p className="text-xs text-amber-700 dark:text-amber-400">
+                  <strong>Heads up:</strong> only {instances} instance{instances !== 1 ? "s" : ""}. If unavailable, Autoscaler can't spin up a node. Relax constraints.
+                </p>
+              </div>
+            )}
+            <InstanceTable rows={MOCK_INSTANCES.slice(0, instances)} />
+          </RightRail>
+        )}
+        {activeSection === "features" && (
+          <RightRail title="Template summary">
+            <div className="space-y-3 text-xs">
+              <div>
+                <div className="text-[0.65rem] text-muted-foreground uppercase tracking-wide mb-1">Targeting</div>
+                <div className="font-medium">{editForm.name || "—"}</div>
+                <div className="text-muted-foreground">{editForm.taintEnabled ? "tainted · " : ""}{editForm.nodeConfig} config</div>
+              </div>
+              <div className="border-t border-border/50 pt-3">
+                <div className="text-[0.65rem] text-muted-foreground uppercase tracking-wide mb-2">Constraints</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {editForm.archX86 && <Badge variant="outline" className="text-[0.6rem] px-1.5 font-normal">x86_64</Badge>}
+                  {editForm.archArm && <Badge variant="outline" className="text-[0.6rem] px-1.5 font-normal">ARM64</Badge>}
+                  {editForm.osLinux && <Badge variant="outline" className="text-[0.6rem] px-1.5 font-normal">Linux</Badge>}
+                  {editForm.osWindows && <Badge variant="outline" className="text-[0.6rem] px-1.5 font-normal">Windows</Badge>}
+                  {editForm.offeringSpot && <Badge variant="outline" className="text-[0.6rem] px-1.5 font-normal bg-primary/10 text-primary border-primary/20">Spot</Badge>}
+                  {editForm.offeringOnDemand && <Badge variant="outline" className="text-[0.6rem] px-1.5 font-normal">On-demand</Badge>}
+                  {Object.entries(editForm.criteria).map(([k, v]) => {
+                    const def = CONSTRAINT_DEFS.find(d => d.key === k)
+                    return <Badge key={k} variant="outline" className="text-[0.6rem] px-1.5 font-normal">{def ? `${def.label}${v !== "true" ? `: ${v}` : ""}` : k}</Badge>
+                  })}
+                </div>
+              </div>
+              <div className="border-t border-border/50 pt-3">
+                <div className="text-[0.65rem] text-muted-foreground uppercase tracking-wide mb-1">Features on ({enabledFeatures.length})</div>
+                {enabledFeatures.length > 0
+                  ? enabledFeatures.map(f => <div key={f} className="text-muted-foreground">✓ {f}</div>)
+                  : <div className="text-muted-foreground italic">None enabled</div>}
+              </div>
+            </div>
+          </RightRail>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div className="flex items-center justify-between h-16 border-t border-border px-6 shrink-0 bg-surface-paper">
+        <Button variant="ghost" onClick={onCancel}>Cancel</Button>
+        <Button onClick={onSave} className="h-8 text-sm">Save changes</Button>
       </div>
     </div>
   )
