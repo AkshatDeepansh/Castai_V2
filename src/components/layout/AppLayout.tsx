@@ -1,4 +1,4 @@
-import type { ReactNode } from "react"
+import { useEffect, type ReactNode } from "react"
 import { ChevronRight } from "lucide-react"
 import { AppHeader } from "./AppHeader"
 import { AppSidebar } from "./AppSidebar"
@@ -26,6 +26,57 @@ export function AppLayout({
 }: AppLayoutProps) {
   const { isCollapsed, expandedWidth, collapse, expand, setExpandedWidth } =
     useSidebarState()
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      const active = document.activeElement as HTMLElement | null
+      if (!active) return
+
+      const row = active.closest<HTMLTableRowElement>("tr[tabindex]")
+      if (!row) return
+
+      const tbody = row.closest("tbody")
+      if (!tbody) return
+
+      const rows = Array.from(tbody.querySelectorAll<HTMLTableRowElement>("tr[tabindex]"))
+      const idx = rows.indexOf(row)
+      if (idx === -1) return
+
+      switch (e.key) {
+        case "ArrowDown":
+          e.preventDefault()
+          rows[idx + 1]?.focus()
+          break
+        case "ArrowUp":
+          e.preventDefault()
+          rows[idx - 1]?.focus()
+          break
+        case "Home":
+          e.preventDefault()
+          rows[0]?.focus()
+          break
+        case "End":
+          e.preventDefault()
+          rows[rows.length - 1]?.focus()
+          break
+        case "Enter":
+          if (active.tagName === "TR") {
+            e.preventDefault()
+            row.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')?.click()
+          }
+          break
+        case "Escape":
+          if (active.tagName === "TR") {
+            e.preventDefault()
+            active.blur()
+          }
+          break
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [])
 
   return (
     <div className="min-h-screen bg-background flex flex-col text-foreground">

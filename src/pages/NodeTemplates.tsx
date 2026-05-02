@@ -230,7 +230,6 @@ function DonutChart({ templates }: { templates: NodeTemplate[] }) {
 export function Configurations() {
   const [templates, setTemplates] = useState(INITIAL_TEMPLATES)
   const [search, setSearch] = useState("")
-
   const total = templates.length
 
   function toggleEnabled(id: string) {
@@ -416,6 +415,7 @@ export function Configurations() {
             {filtered.map((t) => (
               <tr
                 key={t.id}
+                tabIndex={0}
                 className={cn(
                   "border-b border-border/50 last:border-0 transition-colors hover:bg-muted/25",
                   !t.enabled && "opacity-50"

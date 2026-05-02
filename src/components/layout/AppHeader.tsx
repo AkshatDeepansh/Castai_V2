@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useRef, useEffect } from "react"
 import {
   IconBell,
   IconSearch,
@@ -28,6 +28,50 @@ const ORGS = [
 export function AppHeader() {
   const [activeOrg, setActiveOrg] = useState(ORGS[0])
   const [isDark, setIsDark] = useState(true)
+  const searchContainerRef = useRef<HTMLDivElement>(null)
+  const previousFocusRef = useRef<HTMLElement | null>(null)
+
+  useEffect(() => {
+    function focusSearch() {
+      const input = searchContainerRef.current?.querySelector<HTMLInputElement>("input")
+      if (!input || document.activeElement === input) return
+      previousFocusRef.current = document.activeElement as HTMLElement
+      input.focus()
+      input.select()
+    }
+
+    function handleKeyDown(e: KeyboardEvent) {
+      const target = e.target as HTMLElement
+      const isEditing =
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.contentEditable === "true"
+
+      if (e.key === "/" && !isEditing && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault()
+        focusSearch()
+        return
+      }
+
+      if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault()
+        focusSearch()
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [])
+
+  function handleSearchKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key !== "Escape") return
+    e.preventDefault()
+    const input = e.currentTarget
+    input.value = ""
+    input.blur()
+    previousFocusRef.current?.focus()
+    previousFocusRef.current = null
+  }
 
   function toggleTheme() {
     const next = !isDark
@@ -49,7 +93,7 @@ export function AppHeader() {
 
       {/* Search — center cell */}
       <div className="flex justify-center">
-        <div className="relative w-full max-w-sm">
+        <div className="relative w-full max-w-sm" ref={searchContainerRef}>
           <IconSearch
             size={14}
             className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
@@ -58,6 +102,7 @@ export function AppHeader() {
             placeholder="Search..."
             className="pl-8 h-8 text-sm bg-surface-paper border-border dark:border-border-subtle focus-visible:bg-card rounded-pill"
             aria-label="Search"
+            onKeyDown={handleSearchKeyDown}
           />
         </div>
       </div>

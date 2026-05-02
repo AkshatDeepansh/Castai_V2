@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react"
+import { useState, useRef, useCallback, useEffect } from "react"
 import {
   Home,
   Database,
@@ -156,8 +156,18 @@ type NavGroupItemProps = {
 
 function NavGroupItem({ label, icon, children, activeHref, defaultOpen, isCollapsed }: NavGroupItemProps) {
   const [open, setOpen] = useState(defaultOpen ?? false)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const childrenRef = useRef<HTMLDivElement>(null)
+  const focusFirstChildRef = useRef(false)
   const Icon = resolveIcon(icon)
   const hasActive = children.some((c) => c.href === activeHref)
+
+  useEffect(() => {
+    if (open && focusFirstChildRef.current) {
+      focusFirstChildRef.current = false
+      childrenRef.current?.querySelector<HTMLElement>("a, button")?.focus()
+    }
+  }, [open])
 
   if (isCollapsed) {
     return (
@@ -183,7 +193,13 @@ function NavGroupItem({ label, icon, children, activeHref, defaultOpen, isCollap
   return (
     <div>
       <button
+        ref={buttonRef}
         onClick={() => setOpen((v) => !v)}
+        onKeyDown={(e) => {
+          if ((e.key === "Enter" || e.key === " ") && !open) {
+            focusFirstChildRef.current = true
+          }
+        }}
         className={cn(
           "w-full flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors outline-none",
           "focus-visible:ring-2 focus-visible:ring-sidebar-ring",
@@ -202,7 +218,17 @@ function NavGroupItem({ label, icon, children, activeHref, defaultOpen, isCollap
         )}
       </button>
       {open && (
-        <div className="mt-0.5 ml-4 pl-3 border-l border-border/50 space-y-0.5">
+        <div
+          ref={childrenRef}
+          className="mt-0.5 ml-4 pl-3 border-l border-border/50 space-y-0.5"
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.stopPropagation()
+              setOpen(false)
+              buttonRef.current?.focus()
+            }
+          }}
+        >
           {children.map((child) => (
             <NavLinkItem
               key={child.href}
@@ -217,6 +243,27 @@ function NavGroupItem({ label, icon, children, activeHref, defaultOpen, isCollap
       )}
     </div>
   )
+}
+
+function handleNavKeyDown(e: React.KeyboardEvent<HTMLElement>) {
+  if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return
+
+  const nav = e.currentTarget
+  const items = Array.from(
+    nav.querySelectorAll<HTMLElement>("a[href], button[aria-expanded]")
+  )
+  if (items.length === 0) return
+
+  const idx = items.indexOf(document.activeElement as HTMLElement)
+  if (idx === -1) return
+
+  e.preventDefault()
+
+  if (e.key === "ArrowDown") {
+    items[idx + 1]?.focus()
+  } else {
+    items[idx - 1]?.focus()
+  }
 }
 
 function renderNavEntries(entries: NavEntry[], activeHref: string, isCollapsed: boolean) {
@@ -439,6 +486,7 @@ export function AppSidebar({
           <nav
             className="flex-1 px-2 pt-3 pb-2 space-y-0.5"
             aria-label="Sidebar navigation"
+            onKeyDown={handleNavKeyDown}
           >
             {renderNavEntries(navEntries, activeHref, isCollapsed)}
           </nav>
