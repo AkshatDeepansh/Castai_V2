@@ -1,10 +1,8 @@
 import { useEffect, type ReactNode } from "react"
-import { ChevronRight } from "lucide-react"
 import { AppHeader } from "./AppHeader"
 import { AppSidebar } from "./AppSidebar"
 import { PageHeader } from "./PageHeader"
-import { useSidebarState } from "@/hooks/useSidebarState"
-import { SURFACE_HEADER_HEIGHT } from "@/config/layout"
+import { SidebarProvider, useSidebar } from "@/hooks/useSidebarContext"
 import { cn } from "@/lib/utils"
 
 type AppLayoutProps = {
@@ -17,7 +15,7 @@ type AppLayoutProps = {
   hideHeader?: boolean
 }
 
-export function AppLayout({
+function AppLayoutInner({
   children,
   pageTitle,
   breadcrumbs,
@@ -26,8 +24,7 @@ export function AppLayout({
   pageActions,
   hideHeader = false,
 }: AppLayoutProps) {
-  const { isCollapsed, expandedWidth, collapse, expand, setExpandedWidth } =
-    useSidebarState()
+  const { isCollapsed, expandedWidth, collapse, expand, setExpandedWidth } = useSidebar()
   const toggleSidebar = isCollapsed ? expand : collapse
 
   useEffect(() => {
@@ -93,26 +90,25 @@ export function AppLayout({
           onCollapse={collapse}
           onResizeEnd={setExpandedWidth}
         />
-        <div className="flex-1 flex flex-col overflow-hidden bg-surface-paper relative">
+        <div className="flex-1 min-w-0 flex flex-col overflow-hidden bg-surface-paper relative">
           {!hideHeader && (
             <div className="relative shrink-0">
               <PageHeader title={pageTitle} breadcrumbs={breadcrumbs} actions={pageActions} onSidebarToggle={toggleSidebar} />
             </div>
           )}
-          {hideHeader && isCollapsed && (
-            <button
-              onClick={expand}
-              aria-label="Expand sidebar"
-              className="absolute left-0 top-0 z-10 h-14 w-7 flex items-center justify-center text-muted-foreground/30 hover:text-muted-foreground/70 transition-colors"
-            >
-              <ChevronRight size={13} />
-            </button>
-          )}
-          <div className={cn("flex-1 overflow-hidden", hideHeader ? "flex flex-col" : "overflow-auto p-4")}>
+          <div className={cn("flex-1 min-w-0", hideHeader ? "flex flex-col overflow-hidden" : "overflow-auto p-4")}>
             {children}
           </div>
         </div>
       </div>
     </div>
+  )
+}
+
+export function AppLayout(props: AppLayoutProps) {
+  return (
+    <SidebarProvider>
+      <AppLayoutInner {...props} />
+    </SidebarProvider>
   )
 }

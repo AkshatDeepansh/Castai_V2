@@ -4,6 +4,7 @@ import { IconChevronRight } from "@tabler/icons-react"
 import { cn } from "@/lib/utils"
 import { SURFACE_HEADER_HEIGHT } from "@/config/layout"
 import { Button } from "@/components/ui/button"
+import { useSidebar } from "@/hooks/useSidebarContext"
 
 type Crumb = {
   label: string
@@ -29,23 +30,25 @@ export function PageHeader({
   actions,
   onSidebarToggle,
 }: PageHeaderProps) {
+  const { isCollapsed, expand, collapse } = useSidebar()
+  const toggleSidebar = onSidebarToggle ?? (isCollapsed ? expand : collapse)
+
   return (
-    <div className={cn(SURFACE_HEADER_HEIGHT, "px-4 pt-3 pb-3 border-b border-border shrink-0 flex flex-col justify-center")}>
+    <div className={cn(SURFACE_HEADER_HEIGHT, "px-4 pt-3 pb-3 border-b border-border shrink-0 flex flex-col justify-center bg-surface-paper")}>
       <nav aria-label="Breadcrumb" className="mb-1.5">
         <ol className="flex items-center gap-1 text-xs text-muted-foreground">
-          {onSidebarToggle && (
-            <li className="flex items-center">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={onSidebarToggle}
-                aria-label="Toggle sidebar"
-                className="h-5 w-5 mr-1 text-muted-foreground"
-              >
-                <PanelLeft size={13} />
-              </Button>
-            </li>
-          )}
+          <li className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleSidebar}
+              aria-label="Toggle sidebar"
+              className="h-5 w-5 text-muted-foreground"
+            >
+              <PanelLeft size={13} />
+            </Button>
+            <div className="h-3.5 w-px bg-border mx-0.5 shrink-0" />
+          </li>
           {breadcrumbs.map((crumb, i) => {
             const isLast = i === breadcrumbs.length - 1
             return (

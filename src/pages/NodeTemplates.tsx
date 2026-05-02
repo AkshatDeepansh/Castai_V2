@@ -17,7 +17,7 @@ import {
   X,
 } from "lucide-react"
 import { AppLayout } from "@/components/layout/AppLayout"
-import { SURFACE_HEADER_HEIGHT } from "@/config/layout"
+import { PageHeader } from "@/components/layout/PageHeader"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -556,23 +556,20 @@ function FeatureComplex({ title, desc, enabled, onChange, ctaLabel }: {
 
 // ─── Wizard header / stepper / footer ─────────────────────────────────────────
 
+const FLOW_BREADCRUMBS_BASE = [
+  { label: "Acme Corp", href: "/overview" },
+  { label: "Staging", href: "/cluster/dashboard" },
+  { label: "Node Autoscaling", href: "/cluster/node-autoscaling" },
+  { label: "Configurations", href: "/cluster/node-autoscaling/configurations" },
+]
+
 function WizardHeader({ onCancel }: { onCancel: () => void }) {
   return (
-    <div className={cn(SURFACE_HEADER_HEIGHT, "px-6 pt-3 pb-3 border-b border-border shrink-0 flex flex-col justify-center bg-surface-paper")}>
-      <div className="mb-1.5">
-        <button
-          onClick={onCancel}
-          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ArrowLeft size={11} className="shrink-0" />
-          <span>Configurations</span>
-        </button>
-      </div>
-      <div className="flex items-center justify-between gap-4">
-        <h1 className="text-xl font-semibold tracking-tight text-foreground">Create a new node template</h1>
-        <Button variant="ghost" size="sm" className="h-8 text-xs shrink-0" onClick={onCancel}>Cancel</Button>
-      </div>
-    </div>
+    <PageHeader
+      title="Create a new node template"
+      breadcrumbs={[...FLOW_BREADCRUMBS_BASE, { label: "New template" }]}
+      actions={<Button variant="ghost" size="sm" className="h-8 text-xs" onClick={onCancel}>Cancel</Button>}
+    />
   )
 }
 
@@ -889,7 +886,7 @@ function ConstraintPill({ def, value, onSet, onRemove }: {
 function Step1Content({ form, onChange }: { form: TemplateForm; onChange: (u: Partial<TemplateForm>) => void }) {
   return (
     <>
-      <div className="flex-1 overflow-y-auto p-6 space-y-4">
+      <div className="flex-1 min-w-0 overflow-y-auto p-6 space-y-4">
         <div>
           <h2 className="text-lg font-bold">Template setup</h2>
           <p className="text-sm text-muted-foreground mt-0.5">Name, identity, and how workloads reach these nodes.</p>
@@ -1000,7 +997,7 @@ function Step2Content({ form, onChange }: { form: TemplateForm; onChange: (u: Pa
 
   return (
     <>
-      <div className="flex-1 overflow-y-auto p-6 space-y-4">
+      <div className="flex-1 min-w-0 overflow-y-auto p-6 space-y-4">
         <div>
           <h2 className="text-lg font-bold">Node pool constraints</h2>
           <p className="text-sm text-muted-foreground mt-0.5">Filter which instances are eligible. More constraints = tighter pool = higher risk.</p>
@@ -1101,7 +1098,7 @@ function Step3Content({ form, onChange }: { form: TemplateForm; onChange: (u: Pa
 
   return (
     <>
-      <div className="flex-1 overflow-y-auto p-6 space-y-5">
+      <div className="flex-1 min-w-0 overflow-y-auto p-6 space-y-5">
         <div>
           <h2 className="text-lg font-bold">Node-level features</h2>
           <p className="text-sm text-muted-foreground mt-0.5">Toggle features on. Some have inline config; others open a dedicated setup flow.</p>
@@ -1289,26 +1286,15 @@ function ScenarioPicker({ onSelect, onBlank, onCancel }: {
   }
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
-      {/* Header — matches PageHeader height and layout */}
-      <div className={cn(SURFACE_HEADER_HEIGHT, "px-6 pt-3 pb-3 border-b border-border shrink-0 flex flex-col justify-center bg-surface-paper")}>
-        <div className="mb-1.5">
-          <button
-            onClick={onCancel}
-            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <ArrowLeft size={11} className="shrink-0" />
-            <span>Configurations</span>
-          </button>
-        </div>
-        <div className="flex items-center justify-between gap-4">
-          <h1 className="text-xl font-semibold tracking-tight text-foreground">New node template</h1>
-          <Button variant="ghost" size="sm" className="h-8 text-xs shrink-0" onClick={onCancel}>Cancel</Button>
-        </div>
-      </div>
+    <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+      <PageHeader
+        title="New node template"
+        breadcrumbs={[...FLOW_BREADCRUMBS_BASE, { label: "New template" }]}
+        actions={<Button variant="ghost" size="sm" className="h-8 text-xs" onClick={onCancel}>Cancel</Button>}
+      />
 
       {/* Body */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 min-w-0 overflow-y-auto">
         <div className="max-w-2xl mx-auto px-6 py-8">
           <div className="mb-6">
             <h2 className="text-xl font-bold">How would you like to start?</h2>
@@ -1445,20 +1431,14 @@ function EditTemplateView({ template, form, onSave, onCancel }: {
   const isTight = instances <= 5
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
-      {/* Header — matches WizardHeader */}
-      <div className={cn(SURFACE_HEADER_HEIGHT, "px-6 pt-3 pb-3 border-b border-border shrink-0 flex flex-col justify-center bg-surface-paper")}>
-        <div className="mb-1.5">
-          <button onClick={onCancel} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors">
-            <ArrowLeft size={11} className="shrink-0" />
-            <span>Configurations</span>
-          </button>
-        </div>
-        <h1 className="text-xl font-semibold tracking-tight text-foreground">{template.name}</h1>
-      </div>
+    <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+      <PageHeader
+        title={template.name}
+        breadcrumbs={[...FLOW_BREADCRUMBS_BASE, { label: template.name }]}
+      />
 
       {/* 3-panel layout */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex w-full">
         {/* Left: section nav cards */}
         <div className="w-64 border-r border-border bg-muted/20 overflow-y-auto p-4 shrink-0">
           <div className="text-[0.65rem] font-semibold text-muted-foreground uppercase tracking-wider mb-3">Template sections</div>
@@ -1523,9 +1503,9 @@ function EditTemplateView({ template, form, onSave, onCancel }: {
         </div>
 
         {/* Center: active section */}
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 min-w-0 overflow-y-auto p-6">
           {activeSection === "setup" && (
-            <div className="max-w-xl space-y-4">
+            <div className="space-y-4">
               <div>
                 <h2 className="text-lg font-bold">Template setup</h2>
                 <p className="text-sm text-muted-foreground mt-0.5">Name, identity, and how workloads reach these nodes.</p>
@@ -1591,7 +1571,7 @@ function EditTemplateView({ template, form, onSave, onCancel }: {
           )}
 
           {activeSection === "constraints" && (
-            <div className="max-w-xl space-y-4">
+            <div className="space-y-4">
               <div>
                 <h2 className="text-lg font-bold">Node pool constraints</h2>
                 <p className="text-sm text-muted-foreground mt-0.5">Filter which instances are eligible. More constraints = tighter pool = higher risk.</p>
@@ -1634,7 +1614,7 @@ function EditTemplateView({ template, form, onSave, onCancel }: {
           )}
 
           {activeSection === "features" && (
-            <div className="max-w-xl space-y-4">
+            <div className="space-y-4">
               <div>
                 <h2 className="text-lg font-bold">Node-level features</h2>
                 <p className="text-sm text-muted-foreground mt-0.5">Toggle features on. Some have inline config; others open a dedicated setup flow.</p>
@@ -1839,10 +1819,10 @@ export function Configurations() {
 
       {/* ── Wizard ── */}
       {step !== null && (
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
           <WizardHeader onCancel={cancelFlow} />
           <WizardStepper step={step} />
-          <div className="flex-1 flex overflow-hidden">
+          <div className="flex-1 flex w-full">
             {step === 1 && <Step1Content form={form} onChange={u => setForm(p => ({ ...p, ...u }))} />}
             {step === 2 && <Step2Content form={form} onChange={u => setForm(p => ({ ...p, ...u }))} />}
             {step === 3 && <Step3Content form={form} onChange={u => setForm(p => ({ ...p, ...u }))} />}
