@@ -11,7 +11,6 @@ import {
   Zap,
   MoveHorizontal,
   Check,
-  ChevronRight,
   ArrowLeft,
   Plus,
   X,
@@ -493,7 +492,7 @@ function YamlPreview({ form }: { form: TemplateForm }) {
 
 // ─── Feature row patterns ─────────────────────────────────────────────────────
 
-function FeatureSimple({ title, desc, enabled, onChange, locked, lockReason }: {
+function FeatureSimple({ title, desc, enabled, onChange, locked }: {
   title: string; desc: string; enabled: boolean; onChange: () => void; locked?: boolean; lockReason?: string
 }) {
   return (
