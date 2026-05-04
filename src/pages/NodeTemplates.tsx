@@ -1,6 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react"
 import {
-  Star,
   Search,
   MoreHorizontal,
   Pencil,
@@ -39,6 +38,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -55,6 +55,13 @@ export type NodeTemplate = {
   memEfficiency: number
   enabled: boolean
   isDefault: boolean
+  sloMet: number
+  sloTotal: number
+  errorBudgetRemainingMinutes: number
+  errorBudgetTotalMinutes: number
+  lastProvisionedMinutes: number
+  issueCount: number
+  p95LatencyMs: number
 }
 
 type TemplateForm = {
@@ -143,11 +150,11 @@ const CONSTRAINT_DEFS: ConstraintDef[] = [
 ]
 
 export const INITIAL_TEMPLATES: NodeTemplate[] = [
-  { id: "1", name: "default-by-castai", nodeConfig: "default", offering: "SPOT", nodes: 24, cpuEfficiency: 71, memEfficiency: 58, enabled: true, isDefault: true },
-  { id: "2", name: "prod-spot-amd64", nodeConfig: "prod-cpu-optimized", offering: "SPOT", nodes: 12, cpuEfficiency: 84, memEfficiency: 76, enabled: true, isDefault: false },
-  { id: "3", name: "prod-on-demand-xl", nodeConfig: "prod-memory-optimized", offering: "ON-DEMAND", nodes: 4, cpuEfficiency: 62, memEfficiency: 89, enabled: true, isDefault: false },
-  { id: "4", name: "gpu-inference-nodes", nodeConfig: "gpu-a100-large", offering: "ON-DEMAND", nodes: 2, cpuEfficiency: 91, memEfficiency: 67, enabled: false, isDefault: false },
-  { id: "5", name: "edge-all-offerings", nodeConfig: "edge-standard", offering: "ALL OFFERINGS", nodes: 6, cpuEfficiency: 55, memEfficiency: 48, enabled: true, isDefault: false },
+  { id: "1", name: "default-by-castai",   nodeConfig: "default",               offering: "SPOT",         nodes: 24, cpuEfficiency: 71, memEfficiency: 58, enabled: true,  isDefault: true,  sloMet: 498, sloTotal: 500, errorBudgetRemainingMinutes: 840,  errorBudgetTotalMinutes: 1440, lastProvisionedMinutes: 2,    issueCount: 0, p95LatencyMs: 32000  },
+  { id: "2", name: "prod-spot-amd64",     nodeConfig: "prod-cpu-optimized",    offering: "SPOT",         nodes: 12, cpuEfficiency: 84, memEfficiency: 76, enabled: true,  isDefault: false, sloMet: 487, sloTotal: 500, errorBudgetRemainingMinutes: 720,  errorBudgetTotalMinutes: 1440, lastProvisionedMinutes: 180,  issueCount: 0, p95LatencyMs: 28000  },
+  { id: "3", name: "prod-on-demand-xl",   nodeConfig: "prod-memory-optimized", offering: "ON-DEMAND",    nodes: 4,  cpuEfficiency: 62, memEfficiency: 89, enabled: true,  isDefault: false, sloMet: 451, sloTotal: 500, errorBudgetRemainingMinutes: 258,  errorBudgetTotalMinutes: 1440, lastProvisionedMinutes: 720,  issueCount: 1, p95LatencyMs: 58000  },
+  { id: "4", name: "gpu-inference-nodes", nodeConfig: "gpu-a100-large",        offering: "ON-DEMAND",    nodes: 2,  cpuEfficiency: 91, memEfficiency: 67, enabled: false, isDefault: false, sloMet: 62,  sloTotal: 70,  errorBudgetRemainingMinutes: 0,    errorBudgetTotalMinutes: 1440, lastProvisionedMinutes: 4320, issueCount: 2, p95LatencyMs: 145000 },
+  { id: "5", name: "edge-all-offerings",  nodeConfig: "edge-standard",         offering: "ALL OFFERINGS", nodes: 6,  cpuEfficiency: 55, memEfficiency: 48, enabled: true,  isDefault: false, sloMet: 376, sloTotal: 400, errorBudgetRemainingMinutes: 86,   errorBudgetTotalMinutes: 1440, lastProvisionedMinutes: 45,   issueCount: 1, p95LatencyMs: 41000  },
 ]
 
 const PAGE_TABS = [
@@ -181,6 +188,20 @@ function computeTightnessPercent(form: TemplateForm): number {
   if (n >= 10) return 58
   if (n >= 5) return 78
   return 92
+}
+
+function relativeTime(minutesAgo: number): string {
+  if (minutesAgo < 60) return `${minutesAgo} min ago`
+  if (minutesAgo < 1440) return `${Math.floor(minutesAgo / 60)}h ago`
+  return `${Math.floor(minutesAgo / 1440)}d ago`
+}
+
+function templateStatus(t: NodeTemplate): "green" | "amber" | "red" {
+  const sloPct = t.sloTotal > 0 ? (t.sloMet / t.sloTotal) * 100 : 100
+  const budgetPct = t.errorBudgetTotalMinutes > 0 ? (t.errorBudgetRemainingMinutes / t.errorBudgetTotalMinutes) * 100 : 100
+  if (sloPct < 90 || budgetPct < 20) return "red"
+  if (sloPct < 95 || budgetPct < 50) return "amber"
+  return "green"
 }
 
 function templateToForm(t: NodeTemplate): TemplateForm {
@@ -223,6 +244,59 @@ function MiniBar({ value }: { value: number }) {
       </div>
       <span className="text-xs tabular-nums w-7 text-right">{value}%</span>
     </div>
+  )
+}
+
+function StatusDot({ status }: { status: "green" | "amber" | "red" }) {
+  return (
+    <span className={cn(
+      "w-1.5 h-1.5 rounded-full shrink-0 inline-block",
+      status === "green" ? "bg-green-500" : status === "amber" ? "bg-amber-500" : "bg-red-500"
+    )} />
+  )
+}
+
+function SloBar({ met, total }: { met: number; total: number }) {
+  const pct = total > 0 ? Math.round((met / total) * 1000) / 10 : 0
+  const barColor = pct >= 95 ? "bg-green-500" : pct >= 90 ? "bg-amber-500" : "bg-red-500"
+  const textColor = pct >= 95 ? "text-green-600 dark:text-green-400" : pct >= 90 ? "text-amber-600 dark:text-amber-400" : "text-red-500"
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div className="flex items-center gap-2 cursor-default w-fit">
+          <div className="relative h-1.5 w-14 rounded-full bg-muted overflow-hidden">
+            <div className={cn("absolute inset-y-0 left-0 rounded-full", barColor)} style={{ width: `${pct}%` }} />
+          </div>
+          <span className={cn("text-xs tabular-nums w-9 text-right", textColor)}>{pct}%</span>
+        </div>
+      </TooltipTrigger>
+      <TooltipContent>{met.toLocaleString()}/{total.toLocaleString()} requests met SLO</TooltipContent>
+    </Tooltip>
+  )
+}
+
+function ErrorBudgetBadge({ remainingMinutes, totalMinutes }: { remainingMinutes: number; totalMinutes: number }) {
+  const pct = totalMinutes > 0 ? Math.round((remainingMinutes / totalMinutes) * 100) : 0
+  const isExhausted = remainingMinutes === 0
+  const h = Math.floor(remainingMinutes / 60)
+  const m = remainingMinutes % 60
+  const tooltipText = isExhausted ? "Error budget exhausted" : `${h}h ${m}m of error budget remaining`
+  const colorClass = isExhausted || pct < 20
+    ? "bg-red-500/10 text-red-600 border-red-500/20 dark:text-red-400 dark:border-red-500/30"
+    : pct < 50
+    ? "bg-amber-500/10 text-amber-600 border-amber-500/20 dark:text-amber-400 dark:border-amber-500/30"
+    : "bg-green-500/10 text-green-600 border-green-500/20 dark:text-green-400 dark:border-green-500/30"
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="cursor-default">
+          <Badge variant="outline" className={cn("text-[0.6rem] px-1.5 uppercase tracking-wide border pointer-events-none", colorClass)}>
+            {isExhausted ? "Exhausted" : `${pct}%`}
+          </Badge>
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>{tooltipText}</TooltipContent>
+    </Tooltip>
   )
 }
 
@@ -1931,6 +2005,13 @@ export function Configurations() {
       memEfficiency: 0,
       enabled: true,
       isDefault: false,
+      sloMet: 0,
+      sloTotal: 0,
+      errorBudgetRemainingMinutes: 1440,
+      errorBudgetTotalMinutes: 1440,
+      lastProvisionedMinutes: 0,
+      issueCount: 0,
+      p95LatencyMs: 0,
     }])
     setMode("list")
     setForm(DEFAULT_FORM)
@@ -2080,7 +2161,7 @@ export function Configurations() {
           </div>
 
           {/* Summary cards */}
-          <div className="grid grid-cols-2 gap-3 mb-5">
+          <div className="grid grid-cols-3 gap-3 mb-5">
             <Card className="py-0 gap-0">
               <CardContent className="p-4 flex items-center gap-5">
                 <DonutChart templates={templates} />
@@ -2126,6 +2207,41 @@ export function Configurations() {
                 </div>
               </CardContent>
             </Card>
+
+            <Card className="py-0 gap-0">
+              <CardContent className="p-4">
+                <p className="text-[0.6875rem] text-muted-foreground mb-3 uppercase tracking-wide font-medium">Performance signals</p>
+                {(() => {
+                  const avgP95s = templates.reduce((s, t) => s + t.p95LatencyMs, 0) / templates.length / 1000
+                  const spotNodes = templates.reduce((s, t) => t.offering !== "ON-DEMAND" ? s + t.nodes : s, 0)
+                  const totalNodes = templates.reduce((s, t) => s + t.nodes, 0)
+                  const spotAdoption = totalNodes > 0 ? Math.round((spotNodes / totalNodes) * 100) : 0
+                  const issueTemplates = templates.filter(t => t.issueCount > 0).length
+                  const p95Color = avgP95s > 90 ? "text-red-500" : avgP95s > 45 ? "text-amber-600 dark:text-amber-400" : "text-foreground font-medium"
+                  const issueColor = issueTemplates === 0 ? "text-foreground font-medium" : issueTemplates <= 2 ? "text-amber-600 dark:text-amber-400" : "text-red-500"
+                  return (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-muted-foreground">Avg provisioning p95</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className={cn("text-xs tabular-nums", p95Color)}>{avgP95s.toFixed(1)}s</span>
+                          <span className="text-[0.6rem] text-muted-foreground/60">target &lt;45s</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-muted-foreground">Spot adoption</span>
+                        <span className="text-xs tabular-nums text-foreground font-medium">{spotAdoption}%</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-muted-foreground">Templates with issues</span>
+                        <span className={cn("text-xs tabular-nums", issueColor)}>{issueTemplates}</span>
+                      </div>
+                    </div>
+                  )
+                })()}
+              </CardContent>
+            </Card>
+
           </div>
 
           {/* Search */}
@@ -2141,6 +2257,7 @@ export function Configurations() {
 
           {/* Table */}
           <div className="rounded-lg overflow-hidden ring-1 ring-border-subtle">
+            <TooltipProvider>
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-border bg-muted/40">
@@ -2150,6 +2267,9 @@ export function Configurations() {
                   <th className="px-4 py-2.5 text-left font-medium text-muted-foreground uppercase tracking-wide text-[0.6rem] w-[72px]">Nodes</th>
                   <th className="px-4 py-2.5 text-left font-medium text-muted-foreground uppercase tracking-wide text-[0.6rem] w-[130px]">CPU eff.</th>
                   <th className="px-4 py-2.5 text-left font-medium text-muted-foreground uppercase tracking-wide text-[0.6rem] w-[130px]">Mem eff.</th>
+                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground uppercase tracking-wide text-[0.6rem] w-[150px]">Provision SLO</th>
+                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground uppercase tracking-wide text-[0.6rem] w-[110px]">Error budget</th>
+                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground uppercase tracking-wide text-[0.6rem] w-[110px]">Last provisioned</th>
                   <th className="w-10" />
                 </tr>
               </thead>
@@ -2171,7 +2291,7 @@ export function Configurations() {
                           <span onClick={e => e.stopPropagation()}>
                             <TemplateToggle checked={t.enabled} onChange={() => toggleEnabled(t.id)} />
                           </span>
-                          {t.isDefault ? <Star size={12} className="shrink-0 fill-amber-400 text-amber-400" /> : <span className="w-3 shrink-0" />}
+                          <StatusDot status={templateStatus(t)} />
                           <span className={cn("font-medium truncate max-w-[180px]", !t.enabled && "text-muted-foreground")}>{t.name}</span>
                         </div>
                       </td>
@@ -2180,6 +2300,9 @@ export function Configurations() {
                       <td className="px-4 py-3 tabular-nums">{t.nodes}</td>
                       <td className="px-4 py-3"><MiniBar value={t.cpuEfficiency} /></td>
                       <td className="px-4 py-3"><MiniBar value={t.memEfficiency} /></td>
+                      <td className="px-4 py-3"><SloBar met={t.sloMet} total={t.sloTotal} /></td>
+                      <td className="px-4 py-3"><ErrorBudgetBadge remainingMinutes={t.errorBudgetRemainingMinutes} totalMinutes={t.errorBudgetTotalMinutes} /></td>
+                      <td className="px-4 py-3 text-muted-foreground tabular-nums">{relativeTime(t.lastProvisionedMinutes)}</td>
                       <td className="px-2 py-3" onClick={e => e.stopPropagation()}>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
@@ -2208,11 +2331,12 @@ export function Configurations() {
                   ))}
                 {templates.filter(t => t.name.toLowerCase().includes(search.toLowerCase()) || t.nodeConfig.toLowerCase().includes(search.toLowerCase())).length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground text-xs">No templates match your search.</td>
+                    <td colSpan={10} className="px-4 py-10 text-center text-muted-foreground text-xs">No templates match your search.</td>
                   </tr>
                 )}
               </tbody>
             </table>
+            </TooltipProvider>
           </div>
         </>
       )}

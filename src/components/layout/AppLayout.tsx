@@ -110,7 +110,7 @@ function AppLayoutInner({
 
       <Toaster position="bottom-right" />
       {hasBanner && (
-        <div className="fixed bottom-0 left-0 right-0 h-10 bg-surface-card border-t border-border z-40 flex items-center">
+        <div className="fixed bottom-0 left-3 right-3 h-10 bg-surface-card border-t border-l border-r border-b border-border z-40 flex items-center rounded-bl-2xl rounded-br-2xl">
           {bottomBanner}
         </div>
       )}
