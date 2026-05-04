@@ -14,6 +14,7 @@ import {
   ArrowLeft,
   Plus,
   X,
+  Info,
 } from "lucide-react"
 import { AppLayout } from "@/components/layout/AppLayout"
 import { PageHeader } from "@/components/layout/PageHeader"
@@ -29,6 +30,15 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Skeleton } from "@/components/ui/skeleton"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -101,37 +111,6 @@ const DEFAULT_FORM: TemplateForm = {
   storageAutoscaler: false,
 }
 
-const PRESET_OVERRIDES: Record<string, Partial<TemplateForm>> = {
-  "cost-optimized": {
-    offeringSpot: true, offeringOnDemand: false,
-    spotFallback: true, interruptionPrediction: true,
-    criteria: { minCpu: "2", maxCpu: "32" },
-  },
-  "stable-production": {
-    offeringSpot: false, offeringOnDemand: true,
-    taintEnabled: true,
-  },
-  "gpu-workloads": {
-    criteria: { gpuManufacturer: "NVIDIA", minGpu: "1" },
-    gpuSharing: true, diversifySpot: true,
-  },
-  "windows-fleet": {
-    osLinux: false, osWindows: true,
-    offeringSpot: false, offeringOnDemand: true,
-  },
-  "burstable-dev": {
-    offeringSpot: true,
-    criteria: { minCpu: "1", maxCpu: "8" },
-  },
-}
-
-const PRESETS = [
-  { id: "cost-optimized", emoji: "💰", title: "Cost-optimized", desc: "Spot + fallback + ML prediction. Linux, x86_64.", tag: "most popular" },
-  { id: "stable-production", emoji: "🧊", title: "Stable production", desc: "On-demand only. Tainted. No spot interruptions." },
-  { id: "gpu-workloads", emoji: "🎮", title: "GPU workloads", desc: "NVIDIA GPU, Spot, diversified across families." },
-  { id: "windows-fleet", emoji: "🪟", title: "Windows fleet", desc: "Windows OS, on-demand." },
-  { id: "burstable-dev", emoji: "⚡", title: "Burstable dev", desc: "Burstable, small CPU range, spot." },
-]
 
 type ConstraintType = "boolean" | "number" | "select" | "multiselect"
 type ConstraintDef = {
@@ -249,8 +228,8 @@ function MiniBar({ value }: { value: number }) {
 
 function OfferingBadge({ offering }: { offering: ResOffering }) {
   const style: Record<ResOffering, string> = {
-    SPOT: "bg-primary/10 text-primary border-primary/20",
-    "ON-DEMAND": "bg-amber-500/10 text-amber-600 border-amber-500/20 dark:text-amber-400 dark:border-amber-500/30",
+    SPOT: "bg-amber-500/10 text-amber-600 border-amber-500/20 dark:text-amber-400 dark:border-amber-500/30",
+    "ON-DEMAND": "bg-primary/10 text-primary border-primary/20",
     "ALL OFFERINGS": "bg-violet-500/10 text-violet-600 border-violet-500/20 dark:text-violet-400 dark:border-violet-500/30",
   }
   return (
@@ -278,8 +257,8 @@ function DonutChart({ templates }: { templates: NodeTemplate[] }) {
   return (
     <div className="relative w-20 h-20 shrink-0">
       <svg viewBox="0 0 80 80" className="w-full h-full" style={{ transform: "rotate(-90deg)" }}>
-        {segment(spotLen, 0, "var(--primary)")}
-        {segment(onDemandLen, spotLen, "var(--chart-4)")}
+        {segment(spotLen, 0, "var(--chart-4)")}
+        {segment(onDemandLen, spotLen, "var(--primary)")}
         {segment(allLen, spotLen + onDemandLen, "var(--chart-2)")}
       </svg>
       <div className="absolute inset-0 flex items-center justify-center">
@@ -589,13 +568,13 @@ function WizardStepper({ step }: { step: 1 | 2 | 3 }) {
             <div key={s.n} className="flex items-center gap-2">
               <div className={cn(
                 "w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-colors shrink-0",
-                done ? "bg-foreground text-background" : active ? "bg-primary text-white" : "border border-border text-muted-foreground/50 bg-background"
+                done ? "bg-primary text-white" : active ? "bg-primary text-white" : "border border-border text-muted-foreground/50 bg-background"
               )}>
                 {done ? <Check size={11} /> : s.n}
               </div>
               <span className={cn(
                 "text-sm transition-colors",
-                active ? "font-semibold text-foreground" : done ? "text-muted-foreground" : "text-muted-foreground/40"
+                active ? "font-semibold text-primary" : done ? "text-muted-foreground" : "text-muted-foreground/40"
               )}>
                 {s.label}
               </span>
@@ -614,15 +593,15 @@ function WizardStepper({ step }: { step: 1 | 2 | 3 }) {
   )
 }
 
-function WizardFooter({ step, onBack, onContinue }: { step: 1 | 2 | 3; onBack: () => void; onContinue: () => void }) {
+function WizardFooter({ step, onBack, onContinue, continueDisabled }: { step: 1 | 2 | 3; onBack: () => void; onContinue: () => void; continueDisabled?: boolean }) {
   return (
     <div className="flex items-center justify-between h-16 border-t border-border px-6 shrink-0 bg-surface-paper">
-      <Button variant="ghost" onClick={onBack} disabled={step === 1} className="gap-1.5">
+      <Button variant="ghost" onClick={onBack} className="gap-1.5">
         <ArrowLeft size={13} /> Back
       </Button>
       <div className="flex items-center gap-3">
         <span className="text-xs text-muted-foreground">auto-saved</span>
-        <Button onClick={onContinue} className="h-8 text-sm">
+        <Button onClick={onContinue} disabled={continueDisabled} className="h-8 text-sm">
           {step === 3 ? "Create template" : "Continue →"}
         </Button>
       </div>
@@ -880,99 +859,98 @@ function ConstraintPill({ def, value, onSet, onRemove }: {
   )
 }
 
-// ─── Step 1: Template setup ────────────────────────────────────────────────────
+
+// ─── Step 1: Template setup ───────────────────────────────────────────────────
+
+const NODE_CONFIG_OPTIONS = ["default", "prod-cpu-optimized", "prod-memory-optimized", "gpu-a100-large", "edge-standard"]
 
 function Step1Content({ form, onChange }: { form: TemplateForm; onChange: (u: Partial<TemplateForm>) => void }) {
+  const [nameTouched, setNameTouched] = useState(false)
+  const nameError = nameTouched && !form.name.trim()
+
   return (
     <>
       <div className="flex-1 min-w-0 overflow-y-auto p-6 space-y-4">
         <div>
           <h2 className="text-lg font-bold">Template setup</h2>
-          <p className="text-sm text-muted-foreground mt-0.5">Name, identity, and how workloads reach these nodes.</p>
+          <p className="text-sm text-muted-foreground mt-0.5">Name your template, link it to a node config, and optionally configure taints and labels.</p>
         </div>
 
-        <FormSection title="Template name">
-          <Input
-            value={form.name}
-            onChange={e => onChange({ name: e.target.value })}
-            placeholder="e.g. cost-opt-prod"
-            className="max-w-sm h-9 text-sm text-foreground"
-          />
-          <p className="text-[0.7rem] text-amber-600 dark:text-amber-400 mt-1.5">⚠ Cannot be changed after saving</p>
-        </FormSection>
-
-        <FormSection title="Linked node configuration">
-          <div className="flex items-center gap-2">
-            <SplitSelect
-              label="Configuration"
-              value={form.nodeConfig}
-              onChange={v => onChange({ nodeConfig: v })}
-              options={["Default", "prod-cpu-optimized", "prod-memory-optimized", "gpu-a100-large"]}
-            />
-            <span className="text-xs text-muted-foreground/40 shrink-0">·</span>
-            <button className="text-xs text-primary hover:underline whitespace-nowrap shrink-0">Create new node configuration →</button>
+        <FormSection title="Identity">
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs text-muted-foreground mb-1.5 block">
+                Template name <span className="text-destructive">*</span>
+              </label>
+              <Input
+                autoFocus
+                value={form.name}
+                onChange={e => onChange({ name: e.target.value })}
+                onBlur={() => setNameTouched(true)}
+                placeholder="e.g. prod-spot-amd64"
+                className={cn("h-9 text-sm", nameError && "border-destructive focus-visible:ring-destructive/20")}
+              />
+              {nameError && (
+                <p className="text-xs text-destructive mt-1">Template name is required.</p>
+              )}
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground mb-1.5 block">
+                Node configuration <span className="text-destructive">*</span>
+              </label>
+              <SplitSelect
+                label="Config"
+                value={form.nodeConfig}
+                onChange={v => onChange({ nodeConfig: v })}
+                options={NODE_CONFIG_OPTIONS}
+              />
+            </div>
           </div>
-          <button className="text-xs text-primary hover:underline mt-1.5">View configuration ↗</button>
         </FormSection>
 
-        <FormSection title="Taints">
-          <p className="text-xs text-muted-foreground mb-3">Repel pods that don't tolerate this key.</p>
-          <CheckField checked={form.taintEnabled} onChange={() => onChange({ taintEnabled: !form.taintEnabled })} label="Taint nodes" />
-          {form.taintEnabled && (
-            <div className="mt-3">
-              <RepeatableFieldGroup
-                fields={[
-                  { key: "key", label: "Key" },
-                  { key: "value", label: "Value" },
-                  { key: "effect", label: "Effect", type: "select", options: ["NoSchedule", "NoExecute", "PreferNoSchedule"], className: "w-44 shrink-0" },
-                ]}
-                rows={form.taints}
-                onChange={(i, k, v) => onChange({ taints: form.taints.map((t, j) => j === i ? { ...t, [k]: v } : t) })}
-                onRemove={i => onChange({ taints: form.taints.filter((_, j) => j !== i) })}
-                onAdd={() => onChange({ taints: [...form.taints, { key: "", value: "", effect: "NoSchedule" }] })}
-                addLabel="Add taint"
-              />
-            </div>
-          )}
-        </FormSection>
+        <FeatureInline
+          title="Taints"
+          desc="Add scheduling taints to direct workloads to specific node types."
+          enabled={form.taintEnabled}
+          onChange={() => onChange({ taintEnabled: !form.taintEnabled })}
+        >
+          <RepeatableFieldGroup
+            fields={[
+              { key: "key", label: "Key" },
+              { key: "value", label: "Value" },
+              { key: "effect", label: "Effect", type: "select", options: ["NoSchedule", "PreferNoSchedule", "NoExecute"], className: "w-36 shrink-0" },
+            ]}
+            rows={form.taints}
+            onChange={(i, k, v) => onChange({ taints: form.taints.map((t, idx) => idx === i ? { ...t, [k]: v } : t) })}
+            onRemove={i => onChange({ taints: form.taints.filter((_, idx) => idx !== i) })}
+            onAdd={() => onChange({ taints: [...form.taints, { key: "", value: "", effect: "NoSchedule" }] })}
+            addLabel="Add taint"
+          />
+        </FeatureInline>
 
-        <FormSection title="Labels">
-          <p className="text-xs text-muted-foreground mb-3">Default nodeSelector uses the template name. Override with custom labels if needed.</p>
-          <CheckField checked={form.customLabels} onChange={() => onChange({ customLabels: !form.customLabels })} label="Use custom labels" />
-          {!form.customLabels && (
-            <div className="mt-3">
-              <Badge variant="outline" className="text-xs rounded-full font-normal px-2.5 py-0.5">
-                scheduling.cast.ai/node-template: {form.name || "—"}
-              </Badge>
-            </div>
-          )}
-          {form.customLabels && (
-            <div className="mt-3">
-              <RepeatableFieldGroup
-                fields={[
-                  { key: "key", label: "Key" },
-                  { key: "value", label: "Value" },
-                ]}
-                rows={form.labels}
-                onChange={(i, k, v) => onChange({ labels: form.labels.map((l, j) => j === i ? { ...l, [k]: v } : l) })}
-                onRemove={i => onChange({ labels: form.labels.filter((_, j) => j !== i) })}
-                onAdd={() => onChange({ labels: [...form.labels, { key: "", value: "" }] })}
-                addLabel="Add label"
-              />
-            </div>
-          )}
-        </FormSection>
+        <FeatureInline
+          title="Custom labels"
+          desc="Attach metadata labels to nodes for identification and policy targeting."
+          enabled={form.customLabels}
+          onChange={() => onChange({ customLabels: !form.customLabels })}
+        >
+          <RepeatableFieldGroup
+            fields={[
+              { key: "key", label: "Key" },
+              { key: "value", label: "Value" },
+            ]}
+            rows={form.labels}
+            onChange={(i, k, v) => onChange({ labels: form.labels.map((l, idx) => idx === i ? { ...l, [k]: v } : l) })}
+            onRemove={i => onChange({ labels: form.labels.filter((_, idx) => idx !== i) })}
+            onAdd={() => onChange({ labels: [...form.labels, { key: "", value: "" }] })}
+            addLabel="Add label"
+          />
+        </FeatureInline>
       </div>
 
-      <RightRail title="YAML preview">
-        <div className="space-y-4">
-          <p className="text-xs text-muted-foreground">How pods will bind to nodes created by this template.</p>
-          <YamlPreview form={form} />
-          <div className="p-3 rounded-md border border-primary/20 bg-primary/[0.04]">
-            <p className="text-xs font-medium">💡 Copy this into your Deployment</p>
-            <p className="text-xs text-muted-foreground mt-1">Apply the nodeSelector + toleration to pods you want on this template's nodes.</p>
-          </div>
-        </div>
+      <RightRail title="Kubernetes YAML preview">
+        <p className="text-xs text-muted-foreground mb-3">Snippet to add to your pod or deployment spec to target this template.</p>
+        <YamlPreview form={form} />
       </RightRail>
     </>
   )
@@ -1258,147 +1236,6 @@ function Step3Content({ form, onChange }: { form: TemplateForm; onChange: (u: Pa
   )
 }
 
-// ─── Scenario picker ───────────────────────────────────────────────────────────
-
-function ScenarioPicker({ onSelect, onBlank, onCancel }: {
-  onSelect: (presetId: string) => void
-  onBlank: () => void
-  onCancel: () => void
-}) {
-  const [selected, setSelected] = useState<string>("cost-optimized")
-  const [query, setQuery] = useState("")
-
-  const filtered = PRESETS.filter(p =>
-    query === "" ||
-    p.title.toLowerCase().includes(query.toLowerCase()) ||
-    p.desc.toLowerCase().includes(query.toLowerCase())
-  )
-
-  const selectedPreset = PRESETS.find(p => p.id === selected)
-
-  function handleContinue() {
-    if (selected === "blank") {
-      onBlank()
-    } else {
-      onSelect(selected)
-    }
-  }
-
-  return (
-    <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-      <PageHeader
-        title="New node template"
-        breadcrumbs={[...FLOW_BREADCRUMBS_BASE, { label: "New template" }]}
-        actions={<Button variant="ghost" size="sm" className="h-8 text-xs" onClick={onCancel}>Cancel</Button>}
-      />
-
-      {/* Body */}
-      <div className="flex-1 min-w-0 overflow-y-auto">
-        <div className="max-w-2xl mx-auto px-6 py-8">
-          <div className="mb-6">
-            <h2 className="text-xl font-bold">How would you like to start?</h2>
-            <p className="text-sm text-muted-foreground mt-1">Pick a preset and we'll pre-fill sensible defaults — or start from a blank template.</p>
-          </div>
-
-          {/* Search */}
-          <div className="relative mb-6">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder='Search presets — e.g. "spot fallback", "gpu", "windows"...'
-              className="pl-9 h-9 text-sm"
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-            />
-            <kbd className="absolute right-3 top-1/2 -translate-y-1/2 text-[0.6rem] text-muted-foreground border border-border rounded px-1.5 py-0.5">⌘K</kbd>
-          </div>
-
-          {/* Presets */}
-          <div className="text-[0.65rem] font-semibold text-muted-foreground uppercase tracking-wider mb-3">Start from a preset</div>
-          <div className="grid grid-cols-2 gap-3 mb-6">
-            {filtered.map(p => (
-              <button
-                key={p.id}
-                onClick={() => setSelected(p.id)}
-                className={cn(
-                  "text-left p-4 rounded-lg border-2 flex items-start gap-3 transition-colors",
-                  selected === p.id
-                    ? "border-primary/50 bg-primary/[0.03]"
-                    : "border-border hover:border-border/70 bg-card"
-                )}
-              >
-                <span className="text-2xl leading-none mt-0.5">{p.emoji}</span>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-semibold text-sm">{p.title}</span>
-                    {p.tag && <Badge variant="outline" className="text-[0.6rem] px-1.5 border-primary/30 text-primary">{p.tag}</Badge>}
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-0.5">{p.desc}</p>
-                </div>
-                {selected === p.id && <Check size={15} className="text-primary shrink-0 mt-0.5" />}
-              </button>
-            ))}
-            {filtered.length === 0 && (
-              <p className="col-span-2 text-sm text-muted-foreground text-center py-4">No presets match your search.</p>
-            )}
-          </div>
-
-          {/* OR divider */}
-          <div className="flex items-center gap-3 my-5">
-            <div className="flex-1 border-t border-dashed border-border" />
-            <span className="text-xs text-muted-foreground">or build your own</span>
-            <div className="flex-1 border-t border-dashed border-border" />
-          </div>
-
-          {/* Blank hero — selectable like presets */}
-          <button
-            onClick={() => setSelected("blank")}
-            className={cn(
-              "w-full text-left p-5 rounded-lg border-2 flex items-center gap-5 transition-colors",
-              selected === "blank"
-                ? "border-primary/50 bg-primary/[0.03]"
-                : "border-dashed border-border bg-muted/20 hover:border-border/80"
-            )}
-          >
-            <div className={cn(
-              "w-16 h-16 rounded-lg border-2 border-dashed flex items-center justify-center shrink-0 transition-colors",
-              selected === "blank" ? "border-primary/50 bg-primary/5" : "border-border bg-card"
-            )}>
-              {selected === "blank"
-                ? <Check size={24} className="text-primary" />
-                : <Plus size={24} className="text-muted-foreground" />
-              }
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-base">Blank template</span>
-                <Badge variant="outline" className="text-[0.6rem] px-1.5">full control</Badge>
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">Start from scratch. Best when no preset matches your workload.</p>
-              <div className="flex gap-3 mt-2 text-[0.65rem] text-muted-foreground">
-                <span>✎ define every field</span>
-                <span>·</span>
-                <span>🛠 full feature access</span>
-                <span>·</span>
-                <span>🧑‍💻 recommended for experts</span>
-              </div>
-            </div>
-          </button>
-
-          {/* Footer */}
-          <div className="flex justify-between mt-8 pt-5 border-t border-border">
-            <Button variant="ghost" onClick={onCancel}>Cancel</Button>
-            <Button onClick={handleContinue}>
-              {selected === "blank"
-                ? "Start blank →"
-                : `Continue with ${selectedPreset?.title ?? "preset"} →`
-              }
-            </Button>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
 
 // ─── Edit template view ────────────────────────────────────────────────────────
 
@@ -1720,6 +1557,336 @@ function EditTemplateView({ template, form, onSave, onCancel }: {
   )
 }
 
+// ─── Create template modal ────────────────────────────────────────────────────
+
+const PERSONALIZED_PRESETS = [
+  {
+    id: "cost-spot",
+    emoji: "💰",
+    title: "Cost-optimized spot",
+    desc: "Spot with ML interruption prediction and automatic fallback. ~60% savings vs on-demand.",
+    tag: "recommended",
+    name: "cost-optimized-spot",
+    offering: "SPOT" as ResOffering,
+    summary: {
+      bullets: [
+        "ML interruption prediction enabled",
+        "Automatic spot fallback after 5 min",
+        "x86_64 architecture · Linux",
+        "Min 2 CPU / Max 32 CPU",
+      ],
+      savings: "~60% savings vs on-demand",
+    },
+    overrides: {
+      offeringSpot: true,
+      offeringOnDemand: false,
+      spotFallback: true,
+      interruptionPrediction: true,
+    } as Partial<TemplateForm>,
+  },
+  {
+    id: "memory-od",
+    emoji: "🧠",
+    title: "Memory-optimized on-demand",
+    desc: "Reliable on-demand nodes, memory-heavy instance families. Best for stateful workloads.",
+    tag: undefined as string | undefined,
+    name: "memory-optimized-od",
+    offering: "ON-DEMAND" as ResOffering,
+    summary: {
+      bullets: [
+        "On-demand only — no interruption risk",
+        "Min 32 GiB memory per node",
+        "x86_64 architecture · Linux",
+        "Stable for stateful workloads",
+      ],
+      savings: undefined as string | undefined,
+    },
+    overrides: {
+      offeringSpot: false,
+      offeringOnDemand: true,
+      criteria: { minMemory: "32" },
+    } as Partial<TemplateForm>,
+  },
+  {
+    id: "balanced",
+    emoji: "⚖️",
+    title: "Balanced all-offerings",
+    desc: "Mix spot and on-demand. Flexible for varied workloads across your cluster.",
+    tag: undefined as string | undefined,
+    name: "balanced-all-offerings",
+    offering: "ALL OFFERINGS" as ResOffering,
+    summary: {
+      bullets: [
+        "Mix of spot and on-demand instances",
+        "CAST AI picks best available offering",
+        "x86_64 architecture · Linux",
+        "Flexible for varied workload types",
+      ],
+      savings: undefined as string | undefined,
+    },
+    overrides: {
+      offeringSpot: true,
+      offeringOnDemand: true,
+    } as Partial<TemplateForm>,
+  },
+]
+
+const LOADING_COPY = [
+  "Analyzing your cluster configuration…",
+  "Checking spot availability in us-east-1…",
+  "Reviewing workload patterns…",
+  "Matching templates to your usage…",
+  "Generating personalized recommendations…",
+]
+
+function CreateTemplateModal({ open, onContinue, onCancel }: {
+  open: boolean
+  onContinue: (name: string, overrides: Partial<TemplateForm>) => void
+  onCancel: () => void
+}) {
+  const [loaded, setLoaded] = useState(false)
+  const [progress, setProgress] = useState(0)
+  const [copyIdx, setCopyIdx] = useState(0)
+  const [fadeIn, setFadeIn] = useState(true)
+  const [selected, setSelected] = useState("cost-spot")
+  const [panelSelected, setPanelSelected] = useState("cost-spot")
+  const [panelVisible, setPanelVisible] = useState(true)
+
+  useEffect(() => {
+    if (!open) return
+    setLoaded(false)
+    setProgress(0)
+    setCopyIdx(0)
+    setFadeIn(true)
+    setSelected("cost-spot")
+    setPanelSelected("cost-spot")
+    setPanelVisible(true)
+    const raf = requestAnimationFrame(() => setProgress(100))
+    const revealTimeout = setTimeout(() => setLoaded(true), 2500)
+    return () => {
+      cancelAnimationFrame(raf)
+      clearTimeout(revealTimeout)
+    }
+  }, [open])
+
+  useEffect(() => {
+    if (!open || loaded) return
+    const interval = setInterval(() => {
+      setFadeIn(false)
+      const t = setTimeout(() => {
+        setCopyIdx(prev => (prev + 1) % LOADING_COPY.length)
+        setFadeIn(true)
+      }, 150)
+      return () => clearTimeout(t)
+    }, 800)
+    return () => clearInterval(interval)
+  }, [open, loaded])
+
+  useEffect(() => {
+    setPanelVisible(false)
+    const t = setTimeout(() => {
+      setPanelSelected(selected)
+      setPanelVisible(true)
+    }, 120)
+    return () => clearTimeout(t)
+  }, [selected])
+
+  function handleContinue() {
+    if (selected === "blank") {
+      onContinue("", {})
+    } else {
+      const preset = PERSONALIZED_PRESETS.find(p => p.id === selected)!
+      onContinue(preset.name, preset.overrides)
+    }
+  }
+
+  const activePreset = PERSONALIZED_PRESETS.find(p => p.id === panelSelected)
+
+  return (
+    <Dialog open={open} onOpenChange={v => { if (!v) onCancel() }}>
+      <DialogContent
+        showCloseButton={false}
+        className="sm:max-w-4xl w-full p-0 gap-0 overflow-hidden flex flex-col max-h-[90vh]"
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
+          <DialogTitle className="text-sm font-semibold text-foreground">Create a new node template</DialogTitle>
+          <button
+            onClick={onCancel}
+            className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          >
+            <X size={13} />
+          </button>
+        </div>
+
+        {/* Progress bar */}
+        <div className={cn("h-0.5 bg-border overflow-hidden shrink-0 transition-opacity duration-300", loaded ? "opacity-0" : "opacity-100")}>
+          <div
+            className="h-full bg-primary transition-[width] ease-linear"
+            style={{ width: `${progress}%`, transitionDuration: "2500ms" }}
+          />
+        </div>
+
+        {/* Body — single scrollable region, columns stack below sm */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="flex flex-col sm:flex-row gap-5 p-5">
+
+            {/* Left column */}
+            <div className="flex flex-col gap-2 sm:w-7/12">
+
+              {/* Start from scratch */}
+              <button
+                onClick={() => setSelected("blank")}
+                className={cn(
+                  "w-full text-left flex items-center gap-4 p-4 rounded-lg border cursor-pointer transition-colors group",
+                  selected === "blank"
+                    ? "border-primary/30 bg-primary/[0.03] ring-2 ring-primary"
+                    : "border-border hover:border-border/80 bg-card"
+                )}
+              >
+                <div className={cn(
+                  "w-9 h-9 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors",
+                  selected === "blank" ? "border-primary bg-primary/10" : "border-border bg-muted/40"
+                )}>
+                  {selected === "blank"
+                    ? <Check size={15} className="text-primary" />
+                    : <Plus size={15} className="text-muted-foreground" />
+                  }
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-base font-semibold">Start from scratch</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">Define every constraint, offering type, and feature yourself.</div>
+                </div>
+                <span className={cn(
+                  "text-base shrink-0 transition-colors",
+                  selected === "blank" ? "text-primary" : "text-muted-foreground/40 group-hover:text-muted-foreground"
+                )}>→</span>
+              </button>
+
+              {/* Divider */}
+              <div className="flex items-center gap-2 py-1">
+                <div className="flex-1 border-t border-dashed border-border" />
+                <span className="text-xs text-muted-foreground whitespace-nowrap">or start from a recommendation</span>
+                <div className="flex-1 border-t border-dashed border-border" />
+              </div>
+
+              {/* Loading state */}
+              {!loaded && (
+                <div className="flex flex-col gap-2">
+                  <p className={cn("text-xs text-muted-foreground transition-opacity duration-150", fadeIn ? "opacity-100" : "opacity-0")}>
+                    {LOADING_COPY[copyIdx]}
+                  </p>
+                  {[0, 1, 2].map(i => (
+                    <div key={i} className="rounded-lg border border-border p-3 flex items-start gap-3">
+                      <Skeleton className="w-7 h-7 rounded-md shrink-0 mt-0.5" />
+                      <div className="flex-1 flex flex-col gap-1.5 pt-0.5">
+                        <Skeleton className="h-3 w-32" />
+                        <Skeleton className="h-3 w-14" />
+                        <Skeleton className="h-3 w-full" />
+                        <Skeleton className="h-3 w-2/3" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Loaded state */}
+              {loaded && (
+                <div className="flex flex-col gap-2">
+                  <p className="text-xs text-muted-foreground">Personalized for Acme Corp · us-east-1</p>
+                  {PERSONALIZED_PRESETS.map(p => (
+                    <button
+                      key={p.id}
+                      onClick={() => setSelected(p.id)}
+                      className={cn(
+                        "w-full text-left p-3 rounded-lg border cursor-pointer transition-colors",
+                        selected === p.id
+                          ? "border-primary/30 bg-primary/[0.03] ring-2 ring-primary"
+                          : "border-border hover:border-border/80 bg-card"
+                      )}
+                    >
+                      <div className="flex items-start gap-3">
+                        <span className="text-lg leading-none mt-0.5 shrink-0">{p.emoji}</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-semibold">{p.title}</div>
+                          <p className="text-xs text-muted-foreground mt-0.5">{p.desc}</p>
+                        </div>
+                        {selected === p.id && <Check size={13} className="text-primary shrink-0 mt-0.5" />}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Right column — live summary panel */}
+            <div className="flex flex-col gap-3 p-4 bg-muted/30 rounded-lg sm:w-5/12">
+              <div className="text-[0.6rem] font-semibold text-muted-foreground uppercase tracking-wider">What you'll get</div>
+              <div className={cn("flex flex-col gap-3 transition-opacity duration-150", panelVisible ? "opacity-100" : "opacity-0")}>
+                {panelSelected === "blank" ? (
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    You'll configure everything manually across 3 steps — constraints, offerings, and features.
+                  </p>
+                ) : activePreset ? (
+                  <>
+                    <OfferingBadge offering={activePreset.offering} />
+                    <ul className="flex flex-col gap-2">
+                      {activePreset.summary.bullets.map((b, i) => (
+                        <li key={i} className="flex items-start gap-2 text-xs">
+                          <Check size={10} className="text-primary shrink-0 mt-0.5" />
+                          <span className="text-foreground/80">{b}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    {activePreset.summary.savings && (
+                      <div className="px-3 py-2.5 rounded-md bg-green-500/10 border border-green-500/20">
+                        <span className="text-xs font-semibold text-green-600 dark:text-green-400">{activePreset.summary.savings}</span>
+                      </div>
+                    )}
+                  </>
+                ) : null}
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between px-5 py-4 border-t border-border shrink-0">
+          <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={onCancel}>Cancel</Button>
+          <Button size="sm" className="h-8 text-xs" disabled={!loaded && selected !== "blank"} onClick={handleContinue}>
+            Continue →
+          </Button>
+        </div>
+
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function ConfirmExitModal({ open, onConfirm, onDismiss }: {
+  open: boolean
+  onConfirm: () => void
+  onDismiss: () => void
+}) {
+  return (
+    <Dialog open={open} onOpenChange={v => { if (!v) onDismiss() }}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Discard changes?</DialogTitle>
+          <DialogDescription>
+            Your progress won't be saved. Closing now means losing all changes made to this template.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={onDismiss}>Keep editing</Button>
+          <Button variant="destructive" size="sm" onClick={onConfirm}>Discard changes</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // ─── Main page ─────────────────────────────────────────────────────────────────
 
 export function Configurations() {
@@ -1728,24 +1895,21 @@ export function Configurations() {
   const [mode, setMode] = useState<FlowMode>("list")
   const [form, setForm] = useState<TemplateForm>(DEFAULT_FORM)
   const [editTarget, setEditTarget] = useState<NodeTemplate | null>(null)
+  const [modalOpen, setModalOpen] = useState(false)
+  const [confirmExit, setConfirmExit] = useState(false)
+  const [bannerDismissed, setBannerDismissed] = useState(false)
 
-  function startCreate() { setMode("scenario") }
+  function startCreate() { setModalOpen(true) }
 
-  function onSelectPreset(presetId: string) {
-    const preset = PRESETS.find(p => p.id === presetId)
-    setForm({ ...DEFAULT_FORM, ...(PRESET_OVERRIDES[presetId] ?? {}), name: preset?.title.toLowerCase().replace(/\s+/g, "-") ?? "" })
-
-    setMode("step1")
-  }
-
-  function onBlank() {
-    setForm(DEFAULT_FORM)
-
+  function onModalContinue(name: string, overrides: Partial<TemplateForm>) {
+    setForm({ ...DEFAULT_FORM, ...overrides, name })
+    setModalOpen(false)
     setMode("step1")
   }
 
   function onBack() {
-    if (mode === "step2") setMode("step1")
+    if (mode === "step1") { setMode("list"); setModalOpen(true) }
+    else if (mode === "step2") setMode("step1")
     else if (mode === "step3") setMode("step2")
   }
 
@@ -1776,8 +1940,15 @@ export function Configurations() {
   function cancelFlow() {
     setMode("list")
     setForm(DEFAULT_FORM)
-
     setEditTarget(null)
+  }
+
+  function requestExit() {
+    if (mode === "step2" || mode === "step3" || mode === "edit") {
+      setConfirmExit(true)
+    } else {
+      cancelFlow()
+    }
   }
 
   function startEdit(t: NodeTemplate) {
@@ -1794,6 +1965,14 @@ export function Configurations() {
     setTemplates(prev => prev.filter(t => t.id !== id))
   }
 
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape" && mode !== "list") requestExit()
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [mode])
+
   const isWizardOrEdit = mode !== "list"
   const step = mode === "step1" ? 1 : mode === "step2" ? 2 : mode === "step3" ? 3 : null
 
@@ -1804,29 +1983,60 @@ export function Configurations() {
     { label: "Configurations" },
   ]
 
+  const guideBanner = !bannerDismissed ? (
+    <div className="flex items-center gap-3 h-full w-full px-4">
+      <Info size={13} className="text-muted-foreground/60 shrink-0" />
+      <p className="text-xs text-muted-foreground flex-1">
+        <span className="font-medium text-foreground">Prototype</span> — Only Node Autoscaling → Configurations is fully interactive.
+      </p>
+      <button
+        onClick={() => setBannerDismissed(true)}
+        className="shrink-0 text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+        aria-label="Dismiss"
+      >
+        <X size={13} />
+      </button>
+    </div>
+  ) : undefined
+
   return (
     <AppLayout
       pageTitle="Configurations"
       breadcrumbs={listBreadcrumbs}
       activeHref="/cluster/node-autoscaling/configurations"
       hideHeader={isWizardOrEdit}
+      bottomBanner={guideBanner}
     >
-      {/* ── Scenario picker ── */}
-      {mode === "scenario" && (
-        <ScenarioPicker onSelect={onSelectPreset} onBlank={onBlank} onCancel={cancelFlow} />
-      )}
+      {/* ── Create template modal ── */}
+      <CreateTemplateModal
+        open={modalOpen}
+        onContinue={onModalContinue}
+        onCancel={() => setModalOpen(false)}
+      />
+
+      {/* ── Confirm exit ── */}
+      <ConfirmExitModal
+        open={confirmExit}
+        onConfirm={() => { setConfirmExit(false); cancelFlow() }}
+        onDismiss={() => setConfirmExit(false)}
+      />
 
       {/* ── Wizard ── */}
       {step !== null && (
         <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-          <WizardHeader onCancel={cancelFlow} />
+          <WizardHeader onCancel={requestExit} />
           <WizardStepper step={step} />
           <div className="flex-1 flex w-full">
             {step === 1 && <Step1Content form={form} onChange={u => setForm(p => ({ ...p, ...u }))} />}
             {step === 2 && <Step2Content form={form} onChange={u => setForm(p => ({ ...p, ...u }))} />}
             {step === 3 && <Step3Content form={form} onChange={u => setForm(p => ({ ...p, ...u }))} />}
           </div>
-          <WizardFooter step={step} onBack={onBack} onContinue={onContinue} />
+          <WizardFooter
+            step={step}
+            onBack={onBack}
+            onContinue={onContinue}
+            continueDisabled={step === 1 && (!form.name.trim() || !form.nodeConfig.trim())}
+          />
         </div>
       )}
 
@@ -1836,7 +2046,7 @@ export function Configurations() {
           template={editTarget}
           form={form}
           onSave={cancelFlow}
-          onCancel={cancelFlow}
+          onCancel={requestExit}
         />
       )}
 
@@ -1884,7 +2094,7 @@ export function Configurations() {
                   ).map(([offering, count]) => (
                     <div key={offering} className="flex items-center justify-between mb-2 last:mb-0">
                       <div className="flex items-center gap-2">
-                        <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: offering === "SPOT" ? "var(--primary)" : offering === "ON-DEMAND" ? "var(--chart-4)" : "var(--chart-2)" }} />
+                        <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: offering === "SPOT" ? "var(--chart-4)" : offering === "ON-DEMAND" ? "var(--primary)" : "var(--chart-2)" }} />
                         <span className="text-xs text-muted-foreground">{offering}</span>
                       </div>
                       <span className="text-xs font-medium tabular-nums">{count}</span>
@@ -1953,11 +2163,14 @@ export function Configurations() {
                     <tr
                       key={t.id}
                       tabIndex={0}
-                      className={cn("border-b border-border/50 last:border-0 transition-colors hover:bg-muted/25", !t.enabled && "opacity-50")}
+                      onClick={() => startEdit(t)}
+                      className={cn("border-b border-border/50 last:border-0 transition-colors hover:bg-muted/25 cursor-pointer", !t.enabled && "opacity-50")}
                     >
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2.5">
-                          <TemplateToggle checked={t.enabled} onChange={() => toggleEnabled(t.id)} disabled={t.isDefault} />
+                          <span onClick={e => e.stopPropagation()}>
+                            <TemplateToggle checked={t.enabled} onChange={() => toggleEnabled(t.id)} />
+                          </span>
                           {t.isDefault ? <Star size={12} className="shrink-0 fill-amber-400 text-amber-400" /> : <span className="w-3 shrink-0" />}
                           <span className={cn("font-medium truncate max-w-[180px]", !t.enabled && "text-muted-foreground")}>{t.name}</span>
                         </div>
@@ -1967,7 +2180,7 @@ export function Configurations() {
                       <td className="px-4 py-3 tabular-nums">{t.nodes}</td>
                       <td className="px-4 py-3"><MiniBar value={t.cpuEfficiency} /></td>
                       <td className="px-4 py-3"><MiniBar value={t.memEfficiency} /></td>
-                      <td className="px-2 py-3">
+                      <td className="px-2 py-3" onClick={e => e.stopPropagation()}>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground" aria-haspopup="menu">

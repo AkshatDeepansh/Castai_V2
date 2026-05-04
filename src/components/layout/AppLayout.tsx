@@ -14,6 +14,7 @@ type AppLayoutProps = {
   activeHref?: string
   pageActions?: ReactNode
   hideHeader?: boolean
+  bottomBanner?: ReactNode
 }
 
 function AppLayoutInner({
@@ -24,7 +25,9 @@ function AppLayoutInner({
   activeHref = "/cluster/dashboard",
   pageActions,
   hideHeader = false,
+  bottomBanner,
 }: AppLayoutProps) {
+  const hasBanner = !!bottomBanner
   const { isCollapsed, expandedWidth, collapse, expand, setExpandedWidth } = useSidebar()
   const toggleSidebar = isCollapsed ? expand : collapse
   useEffect(() => {
@@ -79,9 +82,12 @@ function AppLayoutInner({
   }, [])
 
   return (
-    <div className="min-h-screen bg-background flex flex-col text-foreground">
+    <div className={cn("min-h-screen bg-background flex flex-col text-foreground", hasBanner && "pb-10")}>
       <AppHeader />
-      <div className="mx-3 mb-3 mt-2 flex-1 flex overflow-hidden bg-surface-paper rounded-2xl border border-border">
+      <div className={cn(
+        "mx-3 mt-2 flex-1 flex overflow-hidden bg-surface-paper border border-border transition-all duration-200",
+        hasBanner ? "mb-0 rounded-tl-2xl rounded-tr-2xl rounded-bl-none rounded-br-none" : "mb-3 rounded-2xl"
+      )}>
         <AppSidebar
           view={sidebarView}
           activeHref={activeHref}
@@ -103,6 +109,11 @@ function AppLayoutInner({
       </div>
 
       <Toaster position="bottom-right" />
+      {hasBanner && (
+        <div className="fixed bottom-0 left-0 right-0 h-10 bg-surface-card border-t border-border z-40 flex items-center">
+          {bottomBanner}
+        </div>
+      )}
     </div>
   )
 }
