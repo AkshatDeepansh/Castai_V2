@@ -2,6 +2,7 @@ export type NavItem = {
   label: string
   href: string
   icon?: string
+  implemented?: boolean
   children?: NavItem[]
 }
 
@@ -17,6 +18,7 @@ export type NavLink = {
   label: string
   href: string
   icon: string
+  implemented?: boolean
 }
 
 export type NavBackLink = {
@@ -24,6 +26,7 @@ export type NavBackLink = {
   label: string
   href: string
   icon: string
+  implemented?: boolean
 }
 
 export type NavEntry = NavLink | NavGroup | NavBackLink
@@ -110,7 +113,7 @@ export const clusterNavigation: NavEntry[] = [
     children: [
       { label: "Overview", href: "/cluster/node-autoscaling" },
       { label: "Node List", href: "/cluster/node-autoscaling/nodes" },
-      { label: "Configurations", href: "/cluster/node-autoscaling/configurations" },
+      { label: "Configurations", href: "/cluster/node-autoscaling/configurations", implemented: true },
       { label: "Rebalancer", href: "/cluster/node-autoscaling/rebalancer" },
     ],
   },

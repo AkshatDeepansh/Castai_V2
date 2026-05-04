@@ -3,6 +3,7 @@ import { AppHeader } from "./AppHeader"
 import { AppSidebar } from "./AppSidebar"
 import { PageHeader } from "./PageHeader"
 import { SidebarProvider, useSidebar } from "@/hooks/useSidebarContext"
+import { Toaster } from "@/components/ui/sonner"
 import { cn } from "@/lib/utils"
 
 type AppLayoutProps = {
@@ -26,7 +27,6 @@ function AppLayoutInner({
 }: AppLayoutProps) {
   const { isCollapsed, expandedWidth, collapse, expand, setExpandedWidth } = useSidebar()
   const toggleSidebar = isCollapsed ? expand : collapse
-
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       const active = document.activeElement as HTMLElement | null
@@ -101,6 +101,8 @@ function AppLayoutInner({
           </div>
         </div>
       </div>
+
+      <Toaster position="bottom-right" />
     </div>
   )
 }
