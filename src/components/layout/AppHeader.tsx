@@ -1,13 +1,13 @@
-import { useState, useRef, useEffect } from "react"
+import { useState } from "react"
+import fullLogoDark from "@/assets/Full logo dark.svg"
+import fullLogoWhite from "@/assets/Full logo white.svg"
 import {
   IconBell,
-  IconSearch,
   IconChevronDown,
   IconBuildingSkyscraper,
   IconCheck,
 } from "@tabler/icons-react"
 import { Sun, Moon } from "lucide-react"
-import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
@@ -18,6 +18,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { SearchCommand } from "@/components/CommandPalette"
 
 const ORGS = [
   { id: "acme", name: "Acme Corp" },
@@ -28,50 +29,6 @@ const ORGS = [
 export function AppHeader() {
   const [activeOrg, setActiveOrg] = useState(ORGS[0])
   const [isDark, setIsDark] = useState(true)
-  const searchContainerRef = useRef<HTMLDivElement>(null)
-  const previousFocusRef = useRef<HTMLElement | null>(null)
-
-  useEffect(() => {
-    function focusSearch() {
-      const input = searchContainerRef.current?.querySelector<HTMLInputElement>("input")
-      if (!input || document.activeElement === input) return
-      previousFocusRef.current = document.activeElement as HTMLElement
-      input.focus()
-      input.select()
-    }
-
-    function handleKeyDown(e: KeyboardEvent) {
-      const target = e.target as HTMLElement
-      const isEditing =
-        target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.contentEditable === "true"
-
-      if (e.key === "/" && !isEditing && !e.metaKey && !e.ctrlKey && !e.altKey) {
-        e.preventDefault()
-        focusSearch()
-        return
-      }
-
-      if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault()
-        focusSearch()
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyDown)
-    return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [])
-
-  function handleSearchKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key !== "Escape") return
-    e.preventDefault()
-    const input = e.currentTarget
-    input.value = ""
-    input.blur()
-    previousFocusRef.current?.focus()
-    previousFocusRef.current = null
-  }
 
   function toggleTheme() {
     const next = !isDark
@@ -82,34 +39,21 @@ export function AppHeader() {
   return (
     <header className="h-9 mx-3 mt-2 px-2 grid grid-cols-[220px_1fr_auto] items-center">
       {/* Logo — left cell */}
-      <div className="flex items-center gap-2 px-4">
-        <div className="h-6 w-6 rounded bg-primary flex items-center justify-center">
-          <span className="text-primary-foreground font-bold text-xs">C</span>
-        </div>
-        <span className="font-semibold text-sm tracking-tight text-foreground">
-          CAST AI
-        </span>
+      <div className="flex items-center px-4">
+        <img
+          src={isDark ? fullLogoWhite : fullLogoDark}
+          alt="CAST AI"
+          className="h-5 w-auto"
+        />
       </div>
 
       {/* Search — center cell */}
       <div className="flex justify-center">
-        <div className="relative w-full max-w-sm" ref={searchContainerRef}>
-          <IconSearch
-            size={14}
-            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
-          />
-          <Input
-            placeholder="Search..."
-            className="pl-8 h-8 text-sm bg-surface-paper border-border dark:border-border-subtle focus-visible:bg-card rounded-pill"
-            aria-label="Search"
-            onKeyDown={handleSearchKeyDown}
-          />
-        </div>
+        <SearchCommand />
       </div>
 
       {/* Actions — right cell */}
       <div className="flex items-center gap-3 px-4">
-        {/* Notifications */}
         <div className="relative">
           <Button
             variant="ghost"
@@ -125,7 +69,6 @@ export function AppHeader() {
           />
         </div>
 
-        {/* User avatar */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -149,10 +92,7 @@ export function AppHeader() {
             <DropdownMenuItem className="text-sm">Profile</DropdownMenuItem>
             <DropdownMenuItem className="text-sm">Settings</DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem
-              className="text-sm gap-2"
-              onClick={toggleTheme}
-            >
+            <DropdownMenuItem className="text-sm gap-2" onClick={toggleTheme}>
               {isDark ? <Sun size={14} /> : <Moon size={14} />}
               Toggle theme
             </DropdownMenuItem>
@@ -163,7 +103,6 @@ export function AppHeader() {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {/* Org switcher — far right */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button

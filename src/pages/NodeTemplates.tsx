@@ -33,9 +33,9 @@ import { cn } from "@/lib/utils"
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type FlowMode = "list" | "scenario" | "step1" | "step2" | "step3" | "edit"
-type ResOffering = "SPOT" | "ON-DEMAND" | "ALL OFFERINGS"
+export type ResOffering = "SPOT" | "ON-DEMAND" | "ALL OFFERINGS"
 
-type NodeTemplate = {
+export type NodeTemplate = {
   id: string
   name: string
   nodeConfig: string
@@ -163,7 +163,7 @@ const CONSTRAINT_DEFS: ConstraintDef[] = [
   { key: "maxGpu",            label: "Max GPU",            type: "number",  placeholder: "e.g. 8" },
 ]
 
-const INITIAL_TEMPLATES: NodeTemplate[] = [
+export const INITIAL_TEMPLATES: NodeTemplate[] = [
   { id: "1", name: "default-by-castai", nodeConfig: "default", offering: "SPOT", nodes: 24, cpuEfficiency: 71, memEfficiency: 58, enabled: true, isDefault: true },
   { id: "2", name: "prod-spot-amd64", nodeConfig: "prod-cpu-optimized", offering: "SPOT", nodes: 12, cpuEfficiency: 84, memEfficiency: 76, enabled: true, isDefault: false },
   { id: "3", name: "prod-on-demand-xl", nodeConfig: "prod-memory-optimized", offering: "ON-DEMAND", nodes: 4, cpuEfficiency: 62, memEfficiency: 89, enabled: true, isDefault: false },
